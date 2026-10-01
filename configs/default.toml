@@ -1,0 +1,44 @@
+# Canonical benchmark profile. Changing [selection] changes the dataset.
+[input]
+# Supply the input path with --sabdab-dir. It may be inside or outside the repository.
+summary_file = "sabdab_summary_all.csv"
+structures_dir = "sabdab_all_structures"
+
+[output]
+data_dir = "../data"
+plots_dir = "../plots"
+run_name = "benchmark"
+
+[selection]
+cutoff_date = "2023-06-01"
+methods = ["xray", "em"]
+resolution_min = 1.0
+resolution_max = 3.5
+xray_r_factor_max = 0.3
+exclude_membrane = true
+exclude_engineered_constructs = true
+exclude_vnar = true
+min_residues = 350
+max_residues = 2200
+
+[cdr]
+numbering_scheme = "chothia"
+anarcii_mode = "accuracy"
+batch_size = 32
+
+[resources]
+# GPU is part of the canonical dataset definition. CPU runs are non-canonical.
+# Worker and Foldseek thread counts default to the available CPU count.
+device = "gpu"
+
+[foldseek]
+# Protocol values are recorded in run_manifest.json and are not exposed
+# as CLI overrides in this release.
+interface_lddt_threshold = 0.7
+interface_coverage_threshold = 0.5
+interface_distance_angstrom = 8.0
+full_complex_required = true
+linkage_method = "complete"
+linkage_cutoff = 0.3
+representative_rule = "resolution, R-factor, complex ID"
+chain_tm_threshold = 0.0

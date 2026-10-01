@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "abagbench"
+version = "0.1.0"
+description = "Build nonredundant SAbDab2 datasets for benchmarking antibody–protein antigen complex structure prediction"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+  "numpy==1.26.4",
+  "pandas==2.3.3",
+  "scipy==1.16.3",
+  "matplotlib==3.10.6",
+  "biopython==1.87",
+  "anarcii==2.0.8",
+  "psutil==7.0.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest==9.1.1"]
+
+[project.scripts]
+abag-dataset-pipeline = "dataset_creation_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["dataset_creation_pipeline*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

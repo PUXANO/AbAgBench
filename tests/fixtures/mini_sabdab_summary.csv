@@ -1,0 +1,3 @@
+pdb,date,Hchain,Lchain,antigen_chain,antigen_type,chainsharing_construct,compound,type,method,resolution,r_factor,short_header
+1abc,2023/05/31,X,L,Y,protein,,ordinary,FAB,XRAY,2.0,0.20,SOLUBLE
+2def,2024/01/01,X,,Y,protein,,ordinary,FAB,XRAY,2.0,0.20,SOLUBLE

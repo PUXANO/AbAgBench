@@ -1,0 +1,32 @@
+# Optional Linux CPU environment for development and smoke testing.
+# CPU and GPU Foldseek modes are not dataset-equivalent; outputs produced with
+# this environment are non-canonical and must be versioned separately.
+name: ab-ag-benchmark-cpu
+
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+
+dependencies:
+  - python=3.12
+  - pip=26.2.1
+  - setuptools=81.0.0
+  - wheel=0.48.0
+  - git
+  - cmake=4.4.3
+  - ninja=1.13.2
+  - pkg-config=0.29.2
+  - rust=1.98.1
+  - numpy=1.26.4
+  - pandas=2.3.3
+  - scipy=1.16.3
+  - matplotlib=3.10.6
+  - biopython=1.87
+  - anarcii=2.0.8
+  - pytorch=2.13.0
+  - gemmi=0.7.5
+  - msgpack-python=1.1.1
+  - psutil=7.0.0
+  - sortedcontainers=2.4.0
+  - pytest=9.1.1

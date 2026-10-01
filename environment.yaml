@@ -1,0 +1,52 @@
+# Canonical Linux/WSL2 GPU environment for the antibody-antigen dataset pipeline.
+#
+# Create with:
+#   conda env create --file environment.yaml
+#
+# The Foldseek binary is built separately from the pinned source commit by
+# scripts/install_foldseek_linux.sh because the conda package lacks fields
+# required by this pipeline's interface-scoring protocol.
+name: ab-ag-benchmark-gpu
+
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults
+
+dependencies:
+  # Python 3.12 is supported by Anarcii
+  - python=3.12
+  # Packaging tools are explicit so the local editable install does not pull
+  # build dependencies from PyPI during a Conda-based setup.
+  - pip=26.2.1
+  - setuptools=81.0.0
+  - wheel=0.48.0
+  # Toolchain for the pinned Foldseek source build.
+  - git
+  - cmake=4.4.3
+  - ninja=1.13.2
+  - pkg-config=0.29.2
+  - rust=1.98.1
+  # CUDA toolkit. The NVIDIA driver must be installed on the Linux host or
+  # Windows host for WSL2; it is not supplied by Conda.
+  - cuda-version=12.6
+  - cuda-nvcc=12.6
+  - cuda-cudart-dev=12.6
+  - libcublas-dev=12.6
+  - numpy=1.26.4
+  - pandas=2.3.3
+  - scipy=1.16.3
+  - matplotlib=3.10.6
+  - biopython=1.87
+
+  # Chothia numbering used by stage 4. Runtime dependencies are pinned
+  # explicitly so numbering behavior does not drift between installations.
+  - anarcii=2.0.8
+  - pytorch=2.13.0
+  - gemmi=0.7.5
+  - msgpack-python=1.1.1
+  - psutil=7.0.0
+  - sortedcontainers=2.4.0
+
+  # Test runner for the standalone repository's unit and fixture tests.
+  - pytest=9.1.1

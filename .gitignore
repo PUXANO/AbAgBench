@@ -1,0 +1,32 @@
+# Generated pipeline outputs
+/data/**
+!/data/.gitkeep
+/plots/**
+!/plots/.gitkeep
+
+# Local SAbDab2 input; source data must stay out of releases.
+/sabdab_database/
+/sabdab2/
+/*.zip
+
+# Python and editor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+/cache/
+.DS_Store
+*.swp
+
+# FoldSeek databases, temporary databases, and work files
+*.dbtype
+*.index
+*.lookup
+*.source
+*.mapping
+*.ffdata
+*.ffindex
+*.cif.gz
+*.pdb.gz
+*.tmp
