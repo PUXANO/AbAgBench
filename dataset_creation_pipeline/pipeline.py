@@ -230,6 +230,7 @@ def _write_dry_run(config: PipelineConfig, report: dict[str, Any]) -> None:
         "xray_r_factor_max": config.selection.xray_r_factor_max,
         "exclude_membrane": config.selection.exclude_membrane,
         "residue_bounds_strict": [config.selection.min_residues, config.selection.max_residues],
+        "representative_rule": config.representative_rule,
         "workers": config.resources.workers,
         "foldseek_threads": config.resources.foldseek_threads,
         "device": config.resources.device,
@@ -355,6 +356,7 @@ def run_pipeline(
             outputs = [s5, structural_deleak.SCRATCH_DELEAKED]
         elif number == 6:
             inputs = {"stage5": hash_artifact(s5, DATA_ROOT), "deleaked": hash_artifact(structural_deleak.SCRATCH_DELEAKED, DATA_ROOT), "foldseek": report.get("foldseek_version"), "protocol": resolved_cfg["foldseek"], "resources": resolved_cfg["resources"]}
+            inputs["representative_rule"] = config.representative_rule
             outputs = [
                 BENCHMARK_DIR / "registry.tsv",
                 BENCHMARK_DIR / "benchmark.fasta",
@@ -398,7 +400,7 @@ def run_pipeline(
         2: ("quality filter", lambda: quality_filter.run(force=True, lower=config.selection.min_residues, upper=config.selection.max_residues), lambda: [quality_filter.FILTERED_TSV, quality_filter.METRICS_OUTPUT]),
         4: ("CDR completeness", lambda: cdr_filter.run(processes=config.resources.workers, fastas=meta_s3["fastas"]), lambda: [cdr_filter.FILTERED_TSV, cdr_filter.SCRATCH_SURVIVORS, INTERMEDIATE_ROOT / "04_cdr_metrics.json"]),
         5: ("FoldSeek structural de-leak", lambda: structural_deleak.run(processes=config.resources.workers, threads=config.resources.foldseek_threads, gpu=int(config.resources.device == "gpu"), foldseek_bin=report.get("foldseek_binary")), lambda: [structural_deleak.FILTERED_TSV, structural_deleak.SCRATCH_DELEAKED, INTERMEDIATE_ROOT / "05_deleak_metrics.json"]),
-        6: ("FoldSeek clustering", lambda: clustering.run(processes=config.resources.workers, threads=config.resources.foldseek_threads, gpu=int(config.resources.device == "gpu"), foldseek_bin=report.get("foldseek_binary"), fastas=meta_s3["fastas"]), lambda: [
+        6: ("FoldSeek clustering", lambda: clustering.run(processes=config.resources.workers, threads=config.resources.foldseek_threads, gpu=int(config.resources.device == "gpu"), foldseek_bin=report.get("foldseek_binary"), fastas=meta_s3["fastas"], smallest_repr=config.selection.smallest_repr), lambda: [
             clustering.FINAL_BENCHMARK_DIR / "registry.tsv",
             clustering.FINAL_BENCHMARK_DIR / "benchmark.fasta",
             clustering.FINAL_BENCHMARK_DIR / "edges.tsv",

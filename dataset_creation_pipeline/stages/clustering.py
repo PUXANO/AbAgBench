@@ -4,7 +4,8 @@
 - Run all-versus-all FoldSeek multimer searches.
 - Retain edges with I-LDDT >= 0.7 and query interface coverage >= 0.5.
 - Use complete-linkage clustering at distance 0.3; preserve singleton complexes.
-- Select representatives by resolution, R-factor, then complex ID.
+- Select representatives by resolution, R-factor, then complex ID by default;
+  optionally prioritize the smallest whole complex by total residue count.
 - Export structures, FASTA sequences, clusters, and similarity diagnostics.
 """
 from __future__ import annotations
@@ -22,6 +23,7 @@ import numpy as np
 import pandas as pd
 import scipy.cluster.hierarchy as sch
 
+from ..config import QUALITY_REPRESENTATIVE_RULE, SMALLEST_REPRESENTATIVE_RULE
 from ..foldseek_utils import (
     COVERAGE_THRESHOLD,
     FOLDSEEK_FORMAT,
@@ -140,12 +142,21 @@ def select_representatives_by_quality(
     clusters: dict, reg_df: pd.DataFrame
 ) -> dict:
     """Select one representative per cluster by resolution, R-factor (missing last), then ID."""
+    return select_representatives(clusters, reg_df)
+
+
+def select_representatives(
+    clusters: dict, reg_df: pd.DataFrame, *, smallest_repr: bool = False
+) -> dict:
+    """Select by quality, optionally prioritizing whole-complex full-sequence length."""
     if "resolution" not in reg_df.columns or "r_factor" not in reg_df.columns:
         raise ValueError(
             "Registry lacks resolution/r_factor — cannot select "
             "representatives by experimental quality"
         )
     reg_idx = reg_df.set_index("complex_id")
+    if smallest_repr and "residue_length" not in reg_df.columns:
+        raise ValueError("Registry lacks residue_length — cannot select smallest representatives")
 
     def _sort_key(m):
         if m not in reg_idx.index:
@@ -156,7 +167,16 @@ def select_representatives_by_quality(
         row = reg_idx.loc[m]
         res = float(row["resolution"]) if pd.notna(row["resolution"]) else float("inf")
         rfac = float(row["r_factor"]) if pd.notna(row["r_factor"]) else float("inf")
-        return (res, rfac, m)
+        quality = (res, rfac, m)
+        if smallest_repr:
+            try:
+                size = float(row["residue_length"])
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Invalid residue_length for cluster member {m}") from exc
+            if not np.isfinite(size) or size <= 0 or not size.is_integer():
+                raise ValueError(f"Invalid residue_length for cluster member {m}: {size}")
+            return (size, *quality)
+        return quality
 
     return {cid: min(members, key=_sort_key) for cid, members in clusters.items()}
 
@@ -327,6 +347,7 @@ def run(
     foldseek_bin: str | None = None,
     dry_run: bool = False,
     fastas: dict | None = None,
+    smallest_repr: bool = False,
 ) -> dict:
     """Cluster candidates and export benchmark representatives."""
     global BENCHMARK_DIR, STRUCTURES_DIR, FASTA_PATH, EDGES_PATH, CLUSTERS_PATH
@@ -379,8 +400,9 @@ def run(
     print(f"  Inter-cluster leakage: {leakage['leaked_pairs']:,}/{leakage['total_pairs']:,} "
           f"pairs ({leakage['pct_leaked']:.3f}%)")
 
-    print("\n  Selecting representatives (quality only)...")
-    reps = select_representatives_by_quality(clusters, registry)
+    representative_rule = SMALLEST_REPRESENTATIVE_RULE if smallest_repr else QUALITY_REPRESENTATIVE_RULE
+    print(f"\n  Selecting representatives ({representative_rule})...")
+    reps = select_representatives(clusters, registry, smallest_repr=smallest_repr)
     if not (len(reps) == len(clusters)):
         raise RuntimeError(f"Representatives ({len(reps)}) != clusters ({len(clusters)})")
     for cluster_id, rep in reps.items():
@@ -445,7 +467,7 @@ def run(
     NODES_PATH.write_text(json.dumps(nodes, indent=2) + "\n")
 
     _write_leakage_summary(leakage, diagnostics, clusters)
-    _write_log(registry, reps, clusters, leakage, diagnostics)
+    _write_log(registry, reps, clusters, leakage, diagnostics, representative_rule)
 
     # ── Trim registry to representatives + stage metrics ──────────────────
     registry_reps = registry.loc[registry["complex_id"].isin(set(reps.values()))].copy()
@@ -509,6 +531,7 @@ def run(
         "n_complexes": len(registry),
         "n_clusters": len(clusters),
         "n_representatives": len(reps),
+        "representative_rule": representative_rule,
         "n_edges": len(edges_df),
         "leakage_pct": leakage["pct_leaked"],
         "benchmark_dir": str(BENCHMARK_DIR),
@@ -545,7 +568,7 @@ def _write_leakage_summary(leakage: dict, diagnostics: dict, clusters: dict) -> 
     print(f"  Leakage summary: {LEAKAGE_SUMMARY_PATH}")
 
 
-def _write_log(registry, reps, clusters, leakage, diagnostics) -> None:
+def _write_log(registry, reps, clusters, leakage, diagnostics, representative_rule) -> None:
     log_dir = DATA_ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -556,6 +579,7 @@ def _write_log(registry, reps, clusters, leakage, diagnostics) -> None:
         f.write(f"Complexes in: {len(registry)}\n")
         f.write(f"Clusters: {len(clusters)}\n")
         f.write(f"Representatives: {len(reps)}\n")
+        f.write(f"Representative rule: {representative_rule}\n")
         f.write(f"Leakage: {leakage}\n")
         f.write(f"Diagnostics: {diagnostics}\n")
         f.write("\n--- Representatives ---\n")
@@ -581,6 +605,8 @@ def main() -> None:
                              "env, else PATH).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Validate inputs, skip the FoldSeek search.")
+    parser.add_argument("--smallest-repr", "--smallest_repr", action="store_true",
+                        help="Select by total whole-complex residue count, then resolution, R-factor, and complex ID; default: quality only.")
     args = parser.parse_args()
     run(
         processes=args.processes,
@@ -588,6 +614,7 @@ def main() -> None:
         gpu=args.gpu,
         foldseek_bin=args.foldseek_bin,
         dry_run=args.dry_run,
+        smallest_repr=args.smallest_repr,
     )
 
 

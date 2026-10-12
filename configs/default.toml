@@ -20,6 +20,7 @@ exclude_engineered_constructs = true
 exclude_vnar = true
 min_residues = 350
 max_residues = 2200
+smallest_repr = false
 
 [cdr]
 numbering_scheme = "chothia"
@@ -40,5 +41,6 @@ interface_distance_angstrom = 8.0
 full_complex_required = true
 linkage_method = "complete"
 linkage_cutoff = 0.3
+# Default rule; [selection].smallest_repr optionally prioritizes total residue count.
 representative_rule = "resolution, R-factor, complex ID"
 chain_tm_threshold = 0.0

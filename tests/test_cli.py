@@ -101,12 +101,24 @@ device = "cpu"
         (["--include-engineered-constructs"], "exclude_engineered_constructs", False),
         (["--exclude-vnar"], "exclude_vnar", True),
         (["--include-vnar"], "exclude_vnar", False),
+        (["--smallest-repr"], "smallest_repr", True),
+        (["--smallest_repr"], "smallest_repr", True),
     ],
 )
 def test_each_boolean_selection_flag(flags, field, expected):
     args = cli.build_parser().parse_args(["run", *flags])
     config = cli._resolved_config(args)
     assert getattr(config.selection, field) is expected
+
+
+@pytest.mark.parametrize("command", ["run", "validate"])
+def test_smallest_representative_config_is_preserved_without_cli_flag(tmp_path, command):
+    config_path = tmp_path / "smallest.toml"
+    config_path.write_text("[selection]\nsmallest_repr = true\n")
+    args = cli.build_parser().parse_args([command, "--config", str(config_path)])
+    assert cli._resolved_config(args).selection.smallest_repr is True
+    args = cli.build_parser().parse_args([command])
+    assert cli._resolved_config(args).selection.smallest_repr is False
 
 
 def test_configured_values_reach_stage_environment(monkeypatch, tmp_path):

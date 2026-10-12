@@ -29,7 +29,10 @@ from dataset_creation_pipeline.pipeline import (
     _stage_outputs_match,
 )
 from dataset_creation_pipeline.provenance import hash_artifact
-from dataset_creation_pipeline.stages.clustering import select_representatives_by_quality
+from dataset_creation_pipeline.stages.clustering import (
+    select_representatives,
+    select_representatives_by_quality,
+)
 from dataset_creation_pipeline.utils import (
     chain_full_sequences,
     complex_id_from_row,
@@ -49,6 +52,8 @@ def test_default_config_and_fixed_protocol():
     assert config.selection.methods == ("xray", "em")
     assert config.selection.resolution_min == 1.0
     assert config.selection.resolution_max == 3.5
+    assert config.selection.smallest_repr is False
+    assert config.representative_rule == "resolution, R-factor, complex ID"
     assert config.foldseek.interface_lddt_threshold == 0.7
     assert config.resources.device == "gpu"
     assert config.output.run_name == "benchmark"
@@ -203,6 +208,47 @@ def test_representatives_use_resolution_then_r_factor_then_id():
         1: "b",
         2: "c",
     }
+
+
+def test_smallest_representatives_prioritize_size_then_quality_then_id():
+    registry = pd.DataFrame([
+        {"complex_id": "a", "residue_length": 800, "resolution": 1.0, "r_factor": 0.1},
+        {"complex_id": "b", "residue_length": 400, "resolution": 3.0, "r_factor": 0.3},
+        {"complex_id": "c", "residue_length": 400, "resolution": 2.0, "r_factor": None},
+        {"complex_id": "d", "residue_length": 400, "resolution": 2.0, "r_factor": 0.2},
+        {"complex_id": "e", "residue_length": 400, "resolution": 2.0, "r_factor": 0.2},
+        {"complex_id": "f", "residue_length": 500, "resolution": None, "r_factor": None},
+    ])
+    clusters = {1: ["e", "d", "c", "b", "a"], 2: ["f"]}
+    assert select_representatives(clusters, registry) == {1: "a", 2: "f"}
+    assert select_representatives(clusters, registry, smallest_repr=True) == {1: "d", 2: "f"}
+    assert select_representatives({1: ["a", "b"]}, registry, smallest_repr=True) == {1: "b"}
+
+
+@pytest.mark.parametrize("size", [None, float("nan"), float("inf"), "unknown", 0, -1, 400.5])
+def test_smallest_representatives_reject_invalid_sizes(size):
+    registry = pd.DataFrame([
+        {"complex_id": "a", "residue_length": size, "resolution": 2.0, "r_factor": 0.2}
+    ])
+    with pytest.raises(ValueError, match="Invalid residue_length.*a"):
+        select_representatives({1: ["a"]}, registry, smallest_repr=True)
+
+
+def test_smallest_representatives_require_sizes_and_registered_members():
+    registry = pd.DataFrame([{"complex_id": "a", "resolution": 2.0, "r_factor": 0.2}])
+    with pytest.raises(ValueError, match="lacks residue_length"):
+        select_representatives({1: ["a"]}, registry, smallest_repr=True)
+    registry["residue_length"] = 400
+    with pytest.raises(ValueError, match="Cluster member b missing"):
+        select_representatives({1: ["b"]}, registry, smallest_repr=True)
+
+
+def test_smallest_representative_config_is_boolean_and_records_selection():
+    config = _config_from_mapping({"selection": {"smallest_repr": True}})
+    assert config.as_dict()["selection"]["smallest_repr"] is True
+    assert config.representative_rule == "whole-complex residue count, resolution, R-factor, complex ID"
+    with pytest.raises(ValueError, match="smallest_repr must be a boolean"):
+        _config_from_mapping({"selection": {"smallest_repr": "true"}})
 
 
 def test_foldseek_dry_run_prints_without_launching_process(monkeypatch, capsys):

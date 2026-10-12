@@ -38,6 +38,7 @@ def _common_options(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(exclude_vnar=None)
     parser.add_argument("--min-residues", type=int, help="Strict lower whole-complex sequence length bound; default 350 residues (requires length > bound). Changes membership.")
     parser.add_argument("--max-residues", type=int, help="Strict upper whole-complex sequence length bound; default 2200 residues (requires length < bound). Changes membership.")
+    parser.add_argument("--smallest-repr", "--smallest_repr", action="store_true", default=None, help="Select the smallest whole complex in each stage-6 cluster by total residue count, breaking ties by resolution, R-factor, then complex ID. Default: select by quality only.")
     parser.add_argument("--anarcii-batch-size", type=int, help="Anarcii sequence batch size; default 32. Numbering scheme and accuracy mode remain frozen.")
     parser.add_argument("--workers", type=int, help="CPU worker count for Python stages; default: available CPU count.")
     parser.add_argument("--foldseek-threads", type=int, help="FoldSeek thread count; default: available CPU count.")
@@ -77,6 +78,7 @@ def _resolved_config(args: argparse.Namespace) -> PipelineConfig:
         ("exclude_vnar", "exclude_vnar"),
         ("min_residues", "min_residues"),
         ("max_residues", "max_residues"),
+        ("smallest_repr", "smallest_repr"),
     ):
         value = getattr(args, cli_name)
         if value is not None:

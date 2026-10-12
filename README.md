@@ -151,13 +151,31 @@ Run `python -m dataset_creation_pipeline run --help` for the complete interface.
   `--data-dir`, `--plots-dir`, `--run-name`
 - Selection: `--cutoff`, `--methods`, `--resolution-min`, `--resolution-max`,
   `--xray-r-factor-max`, membrane/construct/VNAR inclusion flags, `--min-residues`,
-  `--max-residues`
+  `--max-residues`, `--smallest-repr` (alias: `--smallest_repr`)
 - Resources: `--device`, `--workers`, `--foldseek-threads`, `--anarcii-batch-size`,
   `--foldseek-bin`
 - Run control: `--dry-run`, `--resume`, `--from-stage`, `--to-stage`, `--force`
 
 Changing an input, selection option, device, or fixed scientific setting defines a
 different dataset. Use a different run name rather than mixing results.
+
+By default, stage 6 selects each cluster's representative by lowest resolution,
+then lowest R-factor (missing values last), then complex ID. Add `--smallest_repr`
+to select the complex with the fewest total residues across its antibody and antigen
+chains instead. Size uses the registry's `residue_length`, computed from full chain
+sequences, including unresolved residues. Equal sizes use the default quality order
+as a tie-break. Clustering itself is unchanged.
+
+```bash
+python -m dataset_creation_pipeline run \
+  --sabdab-dir /absolute/path/to/sabdab2 \
+  --run-name benchmark-smallest \
+  --smallest_repr
+```
+
+For TOML profiles, set `smallest_repr = true` under `[selection]`. The option also
+works when running `python -m dataset_creation_pipeline.stages.clustering` directly.
+The resolved selection flag and effective stage-6 rule are recorded in the run manifest.
 
 ## Resume
 

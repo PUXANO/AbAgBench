@@ -10,6 +10,8 @@ from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = REPOSITORY_ROOT / "configs" / "default.toml"
+QUALITY_REPRESENTATIVE_RULE = "resolution, R-factor, complex ID"
+SMALLEST_REPRESENTATIVE_RULE = "whole-complex residue count, " + QUALITY_REPRESENTATIVE_RULE
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class SelectionConfig:
     exclude_vnar: bool = True
     min_residues: int = 350
     max_residues: int = 2200
+    smallest_repr: bool = False
 
 
 @dataclass(frozen=True)
@@ -69,7 +72,8 @@ class FrozenFoldseekProtocol:
     full_complex_required: bool = True
     linkage_method: str = "complete"
     linkage_cutoff: float = 0.3
-    representative_rule: str = "resolution, R-factor, complex ID"
+    # Default rule; selection.smallest_repr optionally prioritizes complex size.
+    representative_rule: str = QUALITY_REPRESENTATIVE_RULE
     chain_tm_threshold: float = 0.0
     foldseek_format: str = (
         "query,target,complexqtmscore,complexttmscore,interfacelddt,"
@@ -85,6 +89,10 @@ class PipelineConfig:
     cdr: CDRConfig = field(default_factory=CDRConfig)
     resources: ResourceConfig = field(default_factory=ResourceConfig)
     foldseek: FrozenFoldseekProtocol = field(default_factory=FrozenFoldseekProtocol)
+
+    @property
+    def representative_rule(self) -> str:
+        return SMALLEST_REPRESENTATIVE_RULE if self.selection.smallest_repr else self.foldseek.representative_rule
 
     def validate(self) -> None:
         import datetime
@@ -103,6 +111,8 @@ class PipelineConfig:
             raise ValueError("engineered-construct and VNAR filter settings must be booleans")
         if self.selection.min_residues < 0 or self.selection.max_residues <= self.selection.min_residues:
             raise ValueError("residue bounds must satisfy 0 <= minimum < maximum")
+        if not isinstance(self.selection.smallest_repr, bool):
+            raise ValueError("smallest_repr must be a boolean")
         if self.resources.workers < 1 or self.resources.foldseek_threads < 1:
             raise ValueError("worker and FoldSeek thread counts must be at least 1")
         if self.resources.device not in {"cpu", "gpu"}:
