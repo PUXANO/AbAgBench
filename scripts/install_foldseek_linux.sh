@@ -47,10 +47,6 @@ done
 enable_cuda=0
 if [[ "$mode" == "gpu" ]]; then
   enable_cuda=1
-  if [[ "$(uname -m)" != "x86_64" ]]; then
-    echo "The scripted GPU build currently supports Linux x86_64 only." >&2
-    exit 2
-  fi
   for tool in nvcc nvidia-smi; do
     if ! command -v "$tool" >/dev/null 2>&1; then
       echo "GPU prerequisite is missing: $tool" >&2
@@ -86,6 +82,7 @@ cmake_args=(
   -DENABLE_PROSTT5=0
 )
 
+# Select the host CPU target independently of CUDA GPU execution.
 case "$(uname -m)" in
   x86_64)
     if [[ -r /proc/cpuinfo ]] && grep -Eq '(^|[[:space:]])avx2([[:space:]]|$)' /proc/cpuinfo; then
@@ -95,10 +92,6 @@ case "$(uname -m)" in
     fi
     ;;
   aarch64)
-    if [[ "$mode" == "gpu" ]]; then
-      echo "GPU installation is not supported on Linux aarch64 by this script." >&2
-      exit 2
-    fi
     cmake_args+=(-DHAVE_ARM8=1)
     ;;
   *)

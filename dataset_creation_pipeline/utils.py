@@ -571,6 +571,12 @@ CHOTHIA_CDR_RANGES: dict[str, list[tuple[int, int]]] = {
     "L": [(26, 32), (50, 52), (91, 96)],
 }
 CDRH3_RANGE: tuple[int, int] = (96, 101)
+# ANARCII 2.0.8 converts IMGT 105–117 (including insertions, excluding gaps)
+# as one region; chothia_heavy returns [] above this length. This is broader
+# than our Chothia 96–101 feature range, so do not apply the limit to that feature.
+IMGT_CDRH3_RANGE: tuple[int, int] = (105, 117)
+CHOTHIA_MAX_CDRH3_LENGTH = 36
+LONG_CDRH3_REASON = "CDRH3 exceeds ANARCII Chothia conversion limit (36 residues)"
 
 # Anarcii singleton — loaded lazily, shared across the process.
 _ANARCII_MODEL = None  # type: ignore
@@ -742,12 +748,16 @@ def get_chothia_cdr_indices(seq: str, chain_role: str) -> set[int]:
 def get_chothia_details_batch(
     seqs: dict[str, str],
     chain_roles: dict[str, str],
-) -> tuple[dict[str, set[int]], dict[str, int]]:
-    """Return CDR indices and heavy-chain CDRH3 lengths from one Anarcii batch."""
+) -> tuple[dict[str, set[int]], dict[str, int], dict[str, dict]]:
+    """Return CDR indices, Chothia H3 lengths, and confirmed long-H3 exclusions.
+
+    Exclusions use the original IMGT numbering, never empty Chothia CDR sets.
+    All other numbering failures and sequence inconsistencies remain errors.
+    """
     if set(seqs) != set(chain_roles):
         raise ValueError(f"seqs and chain_roles keys mismatch")
     if not seqs:
-        return {}, {}
+        return {}, {}, {}
     for name, role in chain_roles.items():
         if role not in ("H", "L"):
             raise ValueError(f"chain_roles[{name!r}] must be 'H' or 'L', got {role!r}")
@@ -755,7 +765,37 @@ def get_chothia_details_batch(
             raise ValueError(f"Empty sequence for {name!r}")
 
     model = _get_anarcii_model()
-    model.number(seqs)
+    imgt = model.number(seqs)
+    if not isinstance(imgt, dict):
+        raise RuntimeError(f"Anarcii number() returned {type(imgt)}, expected dict")
+    exclusions: dict[str, dict] = {}
+    for name, seq in seqs.items():
+        original = imgt.get(name)
+        if original is None or original.get("error") is not None or not original.get("numbering"):
+            raise RuntimeError(f"Anarcii failed to number {name!r} in IMGT: {original}")
+        if chain_roles[name] != "H" or original.get("chain_type") != "H":
+            continue
+        qs, qe = original.get("query_start"), original.get("query_end")
+        if qs is None or qe is None:
+            v_seq = seq
+        else:
+            if not (0 <= qs <= qe < len(seq)):
+                raise ValueError(f"Invalid IMGT query_start/query_end {qs}/{qe} for {name!r}")
+            v_seq = seq[qs : qe + 1]
+        numbering = original["numbering"]
+        if "".join(aa for _, aa in numbering if aa != "-") != v_seq:
+            raise ValueError(f"IMGT sequence/numbering mismatch for {name!r}")
+        imgt_lo, imgt_hi = IMGT_CDRH3_RANGE
+        h3_length = sum(aa != "-" and imgt_lo <= pos <= imgt_hi for (pos, _), aa in numbering)
+        if h3_length > CHOTHIA_MAX_CDRH3_LENGTH:
+            exclusions[name] = {
+                "reason_code": "cdrh3_too_long",
+                "reason": LONG_CDRH3_REASON,
+                "cdrh3_length_imgt": h3_length,
+                "max_supported_length": CHOTHIA_MAX_CDRH3_LENGTH,
+                "query_start": qs,
+                "query_end": qe,
+            }
     chothia = model.to_scheme("chothia")
     if not isinstance(chothia, dict):
         raise RuntimeError(f"Anarcii to_scheme('chothia') returned {type(chothia)}")
@@ -767,7 +807,11 @@ def get_chothia_details_batch(
         entry = chothia.get(name)
         if entry is None or entry.get("error") is not None:
             raise RuntimeError(f"Anarcii failed to number {name!r}: {entry}")
+        if name in exclusions:
+            continue
         numbering = entry["numbering"]
+        if not numbering:
+            raise RuntimeError(f"Anarcii returned empty Chothia numbering for {name!r} without a confirmed long CDRH3")
         qs = entry.get("query_start")
         qe = entry.get("query_end")
         if qs is None or qe is None:
@@ -817,7 +861,7 @@ def get_chothia_details_batch(
                 "Anarcii predicted %r for %r (role %r) — using SAbDab role",
                 entry.get("chain_type"), name, expected, expected,
             )
-    return cdr_by_key, h3_by_key
+    return cdr_by_key, h3_by_key, exclusions
 
 
 def get_cdrh3_length(seq: str) -> int:

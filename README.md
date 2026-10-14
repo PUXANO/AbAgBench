@@ -40,6 +40,7 @@ If you use this pipeline, please cite:
 | VNAR/IgNAR | Excluded |
 | Whole-complex length | `350 < residues < 2200` |
 | CDR numbering | ANARCII 2.0.8; Chothia; accuracy mode |
+| CDR-H3 eligibility | At most 36 residues in IMGT 105–117, including insertions |
 | Structural overlap | Interface LDDT `>= 0.7`; query-interface coverage `>= 0.5` |
 | Clustering | Complete linkage; distance `1 - interface LDDT`; cutoff `0.3` |
 | Representative | Resolution, then R-factor, then complex ID |
@@ -192,6 +193,24 @@ python -m dataset_creation_pipeline run \
 Resume requires the same inputs and configuration plus that run's manifest,
 intermediate files, and scratch files. Every declared stage output must match its
 recorded fingerprint.
+
+Stage 4 excludes complexes whose heavy-chain CDR-H3 exceeds ANARCII 2.0.8's
+36-residue Chothia conversion limit. Length is verified from the original IMGT
+105–117 numbering, counting insertions and ignoring gaps. This conversion region
+is broader than the Chothia 96–101 range used for the final `cdrh3_length` feature.
+An empty conversion is never interpreted as complete CDR coverage; other
+numbering errors still stop the run.
+
+Every rejected complex is recorded in `intermediate/04_cdr_exclusions.tsv`, with
+`pdb_id`, `complex_id`, chain, reason, and (for long CDR-H3) IMGT length and limit.
+Counts and the eligibility rule are saved in stage-4 metrics and the run manifest;
+the exclusion TSV is a required, hashed stage output. This changes dataset
+eligibility, so rebuilt datasets should be versioned accordingly. Completed
+stage-4 results from older code must be recomputed to create this audit.
+
+After updating the code, a run that failed at stage 4 can use the same command and
+configuration with `--resume --from-stage 4`; stages 1–2 are verified and reused,
+and stage 3's sequences are reconstructed in memory.
 
 ## Outputs
 

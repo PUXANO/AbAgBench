@@ -76,7 +76,7 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
     def fake_chothia_details(sequences, roles):
         cdr_indices = {key: set() for key in sequences}
         h3_lengths = {key: 1 for key, role in roles.items() if role == "H"}
-        return cdr_indices, h3_lengths
+        return cdr_indices, h3_lengths, {}
 
     monkeypatch.setattr(cdr_filter, "get_chothia_details_batch", fake_chothia_details)
     stage4 = cdr_filter.run(fastas=stage3["fastas"])

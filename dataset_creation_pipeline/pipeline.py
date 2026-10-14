@@ -116,6 +116,12 @@ def _stage_outputs_match(number: int, recorded: list[dict[str, Any]], base: Path
     stage 7 later adds ``dataset_features.csv`` to that directory. Ignore only
     that stage-7 output when validating an earlier directory fingerprint.
     """
+    if number == 4 and not any(
+        item.get("path") == "intermediate/04_cdr_exclusions.tsv" for item in recorded
+    ):
+        # Older completed stages have no durable numbering-exclusion audit.
+        # Recompute stage 4 to adopt the eligibility rule and output contract.
+        return False
     if number == 6:
         legacy_dir = next((
             item for item in recorded
@@ -350,7 +356,7 @@ def run_pipeline(
             outputs = []
         elif number == 4:
             inputs = {"stage2": hash_artifact(s2, DATA_ROOT), "source_fingerprint": input_fp, "cdr": resolved_cfg["cdr"]}
-            outputs = [cdr_filter.FILTERED_TSV, cdr_filter.SCRATCH_SURVIVORS]
+            outputs = [cdr_filter.FILTERED_TSV, cdr_filter.SCRATCH_SURVIVORS, INTERMEDIATE_ROOT / "04_cdr_exclusions.tsv"]
         elif number == 5:
             inputs = {"stage4": hash_artifact(cdr_filter.FILTERED_TSV, DATA_ROOT), "survivors": hash_artifact(cdr_filter.SCRATCH_SURVIVORS, DATA_ROOT), "training_ids": hash_artifact(s1, DATA_ROOT), "foldseek": report.get("foldseek_version")}
             outputs = [s5, structural_deleak.SCRATCH_DELEAKED]
@@ -398,7 +404,7 @@ def run_pipeline(
     stage_calls: dict[int, tuple[str, Callable[[], dict[str, Any]], Callable[[], list[Path]]]] = {
         1: ("release screen", lambda: release_screen.run(cutoff=config.selection.cutoff_date), lambda: [release_screen.IDS_OUTPUT, release_screen.MATCHES_OUTPUT]),
         2: ("quality filter", lambda: quality_filter.run(force=True, lower=config.selection.min_residues, upper=config.selection.max_residues), lambda: [quality_filter.FILTERED_TSV, quality_filter.METRICS_OUTPUT]),
-        4: ("CDR completeness", lambda: cdr_filter.run(processes=config.resources.workers, fastas=meta_s3["fastas"]), lambda: [cdr_filter.FILTERED_TSV, cdr_filter.SCRATCH_SURVIVORS, INTERMEDIATE_ROOT / "04_cdr_metrics.json"]),
+        4: ("CDR completeness", lambda: cdr_filter.run(processes=config.resources.workers, fastas=meta_s3["fastas"]), lambda: [cdr_filter.FILTERED_TSV, cdr_filter.SCRATCH_SURVIVORS, INTERMEDIATE_ROOT / "04_cdr_metrics.json", INTERMEDIATE_ROOT / "04_cdr_exclusions.tsv"]),
         5: ("FoldSeek structural de-leak", lambda: structural_deleak.run(processes=config.resources.workers, threads=config.resources.foldseek_threads, gpu=int(config.resources.device == "gpu"), foldseek_bin=report.get("foldseek_binary")), lambda: [structural_deleak.FILTERED_TSV, structural_deleak.SCRATCH_DELEAKED, INTERMEDIATE_ROOT / "05_deleak_metrics.json"]),
         6: ("FoldSeek clustering", lambda: clustering.run(processes=config.resources.workers, threads=config.resources.foldseek_threads, gpu=int(config.resources.device == "gpu"), foldseek_bin=report.get("foldseek_binary"), fastas=meta_s3["fastas"], smallest_repr=config.selection.smallest_repr), lambda: [
             clustering.FINAL_BENCHMARK_DIR / "registry.tsv",

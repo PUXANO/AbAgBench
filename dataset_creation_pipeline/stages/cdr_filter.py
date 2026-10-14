@@ -2,6 +2,7 @@
 """Require fully resolved Chothia CDRs and stage antibody–antigen structures.
 
 - Number full antibody sequences with Anarcii 2.0.8.
+- Exclude CDR-H3 regions above ANARCII's 36-residue Chothia conversion limit.
 - Check H1 26–32, H2 52–56, H3 96–101; L1 26–32, L2 50–52, L3 91–96.
 - Retain complexes with coordinates for every CDR residue.
 - Export heavy/light/antigen chain subsets and update the registry with CDRH3 length.
@@ -19,6 +20,9 @@ import pandas as pd
 from ..paths import DATA_ROOT, INTERMEDIATE_ROOT, SCRATCH_ROOT
 from ..utils import (
     CHOTHIA_CDR_RANGES,
+    CHOTHIA_MAX_CDRH3_LENGTH,
+    IMGT_CDRH3_RANGE,
+    LONG_CDRH3_REASON,
     StageMetrics,
     atomic_write_dataframe,
     atomic_write_json,
@@ -152,7 +156,7 @@ def run(
     print(f"  anarcii version: {anarcii_ver} (pinned 2.0.8)")
 
     # Single batch for CDR indices + CDRH3 lengths (halves inference vs two calls)
-    cdr_indices_by_key, cdrh3_by_heavy_key = get_chothia_details_batch(
+    cdr_indices_by_key, cdrh3_by_heavy_key, numbering_exclusions = get_chothia_details_batch(
         seqs_for_anarcii, roles_for_anarcii
     )
     print(f"  CDR numbering done for {len(cdr_indices_by_key):,} chains")
@@ -166,6 +170,7 @@ def run(
     # Track per-complex decision and cdrh3_length
     survivors: list[int] = []  # row indices that pass
     failures: list[tuple[str, str]] = []  # (complex_id, reason)
+    exclusion_records: list[dict] = []
     cdrh3_lengths: dict[str, int] = {}  # complex_id -> cdrh3_length
     # Store per-complex H/L ok for metrics without re-parsing
     per_complex_status: dict[int, tuple[bool, bool]] = {}  # idx -> (h_ok, l_ok)
@@ -175,6 +180,16 @@ def run(
         pdb_id = str(row["pdb"]).strip().lower()
         h_chain = str(row["Hchain"]).strip()
         l_chain = str(row["Lchain"]).strip() if pd.notna(row["Lchain"]) and str(row["Lchain"]).strip() else None
+
+        h_key = f"{complex_id}__{h_chain}"
+        if h_key in numbering_exclusions:
+            details = numbering_exclusions[h_key]
+            failures.append((complex_id, f"{details['reason']}; IMGT CDRH3 length={details['cdrh3_length_imgt']}"))
+            exclusion_records.append({
+                "complex_id": complex_id, "pdb_id": pdb_id,
+                "chain_id": h_chain, **details,
+            })
+            continue
 
         cif_path = pdb_to_cif_path(pdb_id)
         if not cif_path.exists():
@@ -226,11 +241,18 @@ def run(
                 reasons.append(f"L CDR gap ({len(l_missing)} residues)")
             reason_str = "; ".join(reasons)
             failures.append((complex_id, reason_str))
+            exclusion_records.append({
+                "complex_id": complex_id, "pdb_id": pdb_id,
+                "chain_id": ";".join(chain for chain, ok in ((h_chain, h_ok), (l_chain, l_ok)) if not ok),
+                "reason_code": "cdr_incomplete", "reason": reason_str,
+            })
 
     n_before = len(registry)
     n_after = len(survivors)
     # Build partitioned reason breakdown (one bucket per dropped complex)
     partitioned: dict[str, int] = {}
+    if numbering_exclusions:
+        partitioned[LONG_CDRH3_REASON] = len(numbering_exclusions)
     for idx, (h_ok, l_ok) in per_complex_status.items():
         if idx in survivors:
             continue
@@ -243,18 +265,30 @@ def run(
         else:
             partitioned["other CDR gap"] = partitioned.get("other CDR gap", 0) + 1
 
+    eligibility = {
+        "max_cdrh3_length": CHOTHIA_MAX_CDRH3_LENGTH,
+        "length_scheme": "imgt", "length_range": list(IMGT_CDRH3_RANGE),
+        "long_cdrh3_excluded": len(numbering_exclusions),
+    }
+    exclusions_path = INTERMEDIATE_ROOT / "04_cdr_exclusions.tsv"
+    atomic_write_dataframe(pd.DataFrame(exclusion_records, columns=[
+        "complex_id", "pdb_id", "chain_id", "reason_code", "reason",
+        "cdrh3_length_imgt", "max_supported_length", "query_start", "query_end",
+    ]), exclusions_path, sep="\t", index=False)
     metrics.add("CDR coverage filter (Chothia 100%)", n_before, n_after, reasons=partitioned if partitioned else {"all passed": n_after})
     atomic_write_json(
         INTERMEDIATE_ROOT / "04_cdr_metrics.json",
         {"before": n_before, "after": n_after, "dropped": n_before - n_after,
-         "reasons": partitioned if partitioned else {"all passed": n_after}},
+         "reasons": partitioned if partitioned else {"all passed": n_after},
+         "numbering_eligibility": eligibility},
     )
 
     # --- Update registry with cdrh3_length and filter to survivors ---
     registry_filtered = registry.loc[survivors].copy()
     # Add cdrh3_length column
-    registry_filtered["cdrh3_length"] = registry_filtered.apply(
-        lambda r: cdrh3_lengths[complex_id_from_row(r)], axis=1
+    registry_filtered["cdrh3_length"] = pd.Series(
+        [cdrh3_lengths[complex_id_from_row(r)] for _, r in registry_filtered.iterrows()],
+        index=registry_filtered.index, dtype="int64",
     )
     # Ensure no NaN in cdrh3_length
     if not (registry_filtered["cdrh3_length"].notna().all()):
@@ -341,8 +375,9 @@ def run(
             lf.write(f"{s['stage']}: {s['before']} -> {s['after']} (-{s['dropped']}) {s['reasons']}\n")
         lf.write(f"Staged: {len(staged)}\n")
         if failures:
-            lf.write("\n--- CDR failures (first 20) ---\n")
-            for cid, reason in failures[:20]:
+            lf.write(f"\nExclusion records: {exclusions_path}\n")
+            lf.write("\n--- CDR failures ---\n")
+            for cid, reason in failures:
                 lf.write(f"{cid}: {reason}\n")
     print(f"  Log: {log_path}")
 
@@ -352,6 +387,8 @@ def run(
         "scratch_dir": str(SCRATCH_SURVIVORS),
         "metrics": metrics.to_dict(),
         "anarcii_version": anarcii_ver,
+        "numbering_eligibility": eligibility,
+        "exclusions_path": str(exclusions_path),
     }
 
 
