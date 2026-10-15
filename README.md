@@ -3,7 +3,8 @@
 AbAgBench is a reproducible pipeline for building nonredundant SAbDab2 datasets to
 benchmark antibody–protein antigen complex structure prediction. The repository contains
 code and synthetic test fixtures only; it does not distribute SAbDab2 or generated
-datasets.
+datasets. It also exports validated subsets of completed canonical releases for
+smoke tests and selected-complex experiments.
 
 ## Citation
 
@@ -204,13 +205,86 @@ numbering errors still stop the run.
 Every rejected complex is recorded in `intermediate/04_cdr_exclusions.tsv`, with
 `pdb_id`, `complex_id`, chain, reason, and (for long CDR-H3) IMGT length and limit.
 Counts and the eligibility rule are saved in stage-4 metrics and the run manifest;
-the exclusion TSV is a required, hashed stage output. This changes dataset
-eligibility, so rebuilt datasets should be versioned accordingly. Completed
-stage-4 results from older code must be recomputed to create this audit.
+the exclusion TSV is a required, hashed stage output. Resuming from stage 4 verifies
+the earlier stages and reconstructs stage 3's sequences in memory.
 
-After updating the code, a run that failed at stage 4 can use the same command and
-configuration with `--resume --from-stage 4`; stages 1–2 are verified and reused,
-and stage 3's sequences are reconstructed in memory.
+## Export a subset
+
+`subset` selects survivors from an existing completed canonical GPU release and
+writes a separate, self-contained release. It verifies the source manifest,
+artifact hashes and target coverage before exporting. It does not rerun filtering,
+CDR numbering, structural de-leaking or clustering, and requires no GPU or Foldseek
+execution. Selected complexes retain the source release's sequences, features,
+chain assignments and native structures. Supported complexes have one heavy chain,
+an optional light chain and one protein antigen chain.
+
+Select individual **complex IDs**, rather than PDB IDs; a PDB entry may contain
+several complexes:
+
+```bash
+python -m dataset_creation_pipeline subset \
+  --source-release /path/to/completed-release \
+  --output /path/to/test-release \
+  --ids 1abc_HA 2def_HLA
+```
+
+Or sample five nanobody complexes with at most 800 total residues:
+
+```bash
+python -m dataset_creation_pipeline subset \
+  --source-release /path/to/completed-release \
+  --output /path/to/test-release \
+  --complex-type nanobody --max-residues 800 \
+  --count 5 --seed 17
+```
+
+| Option | Behaviour |
+| --- | --- |
+| `--source-release` | Required path to a completed canonical full release. |
+| `--output` | Required new directory; existing or overlapping destinations are rejected. |
+| `--ids ID ...` | Restrict selection to these unique complex IDs. Unknown IDs are errors. |
+| `--ids-file FILE` | Alternative to `--ids`: one complex ID per nonempty UTF-8 line. |
+| `--complex-type all\|nanobody\|antibody` | Keep both types (default), heavy-only antibodies, or heavy/light antibodies. Each complex also contains its antigen. |
+| `--max-residues N` | Inclusive upper bound on the full-sequence whole-complex residue count. |
+| `--count N --seed S` | Sample exactly N qualifying complexes without replacement using an explicit nonnegative seed. Both options are required together. |
+
+Specify at least one selection criterion. ID, type and size filters are combined
+before sampling. Empty selections, unsupported chain mappings and requests for more
+complexes than qualify are errors. Random sampling uses sorted candidate IDs and
+the recorded seed, so the same source and criteria reproduce the selection.
+
+The output contains:
+
+```text
+test-release/
+├── run_manifest.json
+├── benchmark/
+│   ├── registry.tsv
+│   ├── benchmark.fasta
+│   ├── dataset_features.csv
+│   └── structures/<complex_id>.cif
+└── provenance/source/
+    ├── run_manifest.json
+    └── benchmark/
+        ├── registry.tsv
+        ├── benchmark.fasta
+        └── dataset_features.csv
+```
+
+Every artifact under `benchmark/` contains exactly the selected complexes. The
+manifest declares `release_kind=subset`, the selected IDs, selection criteria,
+source-manifest identity, selected native hashes and exported artifact hashes.
+It records a completed subset export rather than completed pipeline stages.
+`provenance/source/` preserves the original manifest and complete source metadata
+for independent selection verification; those records do not add prediction targets.
+The subset can be validated after the original release has been moved or removed.
+The source is never edited and the output is published only after validation.
+Source clustering diagnostics, intermediate files and plots are not copied.
+
+For universal_runner, point `OPENDDE_DATASET_RELEASE_DIR` at the exported directory,
+set `DATASET_RELEASE_KIND=subset`, and set `OPENDDE_DATASET_MANIFEST_SHA256` to the
+new `run_manifest.json` hash. A five-complex export declares five targets for input
+preparation, prediction and evaluation.
 
 ## Outputs
 

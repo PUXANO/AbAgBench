@@ -115,6 +115,17 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--dry-run", action="store_true", help="Run read-only preflight and print resolved settings; create no output files.")
     run_parser.add_argument("--from-stage", default="1", help="First stage to run (1–7 or release-screen, quality-filter, sequence-extraction, cdr-filter, structural-deleak, clustering, feature-assembly); requires a matching resume manifest.")
     run_parser.add_argument("--to-stage", default="7", help="Last stage to run (same values as --from-stage).")
+    subset = subparsers.add_parser("subset", help="Export selected complexes from a completed canonical release.")
+    subset.add_argument("--source-release", required=True, type=Path)
+    subset.add_argument("--output", required=True, type=Path, help="New release directory; must not exist or overlap the source.")
+    ids = subset.add_mutually_exclusive_group()
+    ids.add_argument("--ids", nargs="+", help="Explicit complex IDs; other filters apply within this selection.")
+    ids.add_argument("--ids-file", type=Path, help="UTF-8 file with one complex ID per nonempty line.")
+    subset.add_argument("--complex-type", choices=("all", "nanobody", "antibody"), default="all",
+                        help="Filter by heavy-only versus heavy/light antibody chains (default: all).")
+    subset.add_argument("--max-residues", type=int, help="Inclusive maximum whole-complex residue count.")
+    subset.add_argument("--count", type=int, help="Randomly sample this many qualifying complexes; requires --seed.")
+    subset.add_argument("--seed", type=int, help="Explicit nonnegative random seed; requires --count.")
     return parser
 
 
@@ -122,6 +133,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "subset":
+            from .subset import export_subset
+
+            ids = args.ids
+            if args.ids_file is not None:
+                ids = [line.strip() for line in args.ids_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+            result = export_subset(args.source_release, args.output, ids=ids,
+                complex_type=args.complex_type, max_residues=args.max_residues,
+                count=args.count, seed=args.seed)
+            print(json.dumps(result, indent=2))
+            return 0
         config = _resolved_config(args)
         if config.resources.device == "cpu":
             print(
