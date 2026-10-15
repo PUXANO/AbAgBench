@@ -54,6 +54,8 @@ development and must be treated as a separate dataset version.
 
 ## Requirements
 
+For full benchmark construction:
+
 - Linux x86_64 with an NVIDIA GPU; or Windows with WSL2, Ubuntu, and an NVIDIA GPU
   visible inside WSL2.
 - Conda or Miniforge.
@@ -68,9 +70,10 @@ sabdab2/
     └── ...
 ```
 
-The `sabdab2/` directory may be inside the repository (it is Git-ignored) or elsewhere.
-Pass its location with `--sabdab-dir`. Use `--summary-file` and `--structures-dir` if
-the extracted names differ.
+The `sabdab2/` directory can be anywhere accessible, including outside the experiment
+or in a separate folder inside it. Pass its location with `--sabdab-dir`. It must not
+overlap the managed `inputs/` or `outputs/` directories. Use `--summary-file` and
+`--structures-dir` if the extracted names differ.
 
 ## Installation
 
@@ -102,10 +105,12 @@ From the repository root:
 ```bash
 python -m dataset_creation_pipeline validate \
   --sabdab-dir /path/to/sabdab2 \
+  --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline"
 
 python -m dataset_creation_pipeline run \
   --sabdab-dir /path/to/sabdab2 \
+  --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
   --run-name benchmark
 ```
@@ -135,6 +140,7 @@ conda activate ab-ag-benchmark-gpu
 
 python -m dataset_creation_pipeline run \
   --sabdab-dir /absolute/path/to/sabdab2 \
+  --output /absolute/path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
   --workers "$SLURM_CPUS_PER_TASK" \
   --foldseek-threads "$SLURM_CPUS_PER_TASK" \
@@ -150,7 +156,7 @@ cannot see a GPU, build Foldseek once from an interactive GPU allocation.
 Run `python -m dataset_creation_pipeline run --help` for the complete interface.
 
 - Input/output: `--config`, `--sabdab-dir`, `--summary-file`, `--structures-dir`,
-  `--data-dir`, `--plots-dir`, `--run-name`
+  `--output` (alias: `--data-dir`), `--run-name`
 - Selection: `--cutoff`, `--methods`, `--resolution-min`, `--resolution-max`,
   `--xray-r-factor-max`, membrane/construct/VNAR inclusion flags, `--min-residues`,
   `--max-residues`, `--smallest-repr` (alias: `--smallest_repr`)
@@ -159,7 +165,7 @@ Run `python -m dataset_creation_pipeline run --help` for the complete interface.
 - Run control: `--dry-run`, `--resume`, `--from-stage`, `--to-stage`, `--force`
 
 Changing an input, selection option, device, or fixed scientific setting defines a
-different dataset. Use a different run name rather than mixing results.
+different dataset. Use a separate experiment folder for each dataset.
 
 By default, stage 6 selects each cluster's representative by lowest resolution,
 then lowest R-factor (missing values last), then complex ID. Add `--smallest_repr`
@@ -171,6 +177,7 @@ as a tie-break. Clustering itself is unchanged.
 ```bash
 python -m dataset_creation_pipeline run \
   --sabdab-dir /absolute/path/to/sabdab2 \
+  --output /absolute/path/to/my-experiment \
   --run-name benchmark-smallest \
   --smallest_repr
 ```
@@ -186,6 +193,7 @@ To restart a failed stage 5 while reusing verified stages 1–4:
 ```bash
 python -m dataset_creation_pipeline run \
   --sabdab-dir /path/to/sabdab2 \
+  --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
   --run-name benchmark \
   --resume --from-stage 5
@@ -202,7 +210,7 @@ is broader than the Chothia 96–101 range used for the final `cdrh3_length` fea
 An empty conversion is never interpreted as complete CDR coverage; other
 numbering errors still stop the run.
 
-Every rejected complex is recorded in `intermediate/04_cdr_exclusions.tsv`, with
+Every rejected complex is recorded in `outputs/abagbench/intermediate/04_cdr_exclusions.tsv`, with
 `pdb_id`, `complex_id`, chain, reason, and (for long CDR-H3) IMGT length and limit.
 Counts and the eligibility rule are saved in stage-4 metrics and the run manifest;
 the exclusion TSV is a required, hashed stage output. Resuming from stage 4 verifies
@@ -223,8 +231,8 @@ several complexes:
 
 ```bash
 python -m dataset_creation_pipeline subset \
-  --source-release /path/to/completed-release \
-  --output /path/to/test-release \
+  --source-release /path/to/full-experiment/inputs \
+  --output /path/to/smoke-test-experiment \
   --ids 1abc_HA 2def_HLA
 ```
 
@@ -232,16 +240,16 @@ Or sample five nanobody complexes with at most 800 total residues:
 
 ```bash
 python -m dataset_creation_pipeline subset \
-  --source-release /path/to/completed-release \
-  --output /path/to/test-release \
+  --source-release /path/to/full-experiment/inputs \
+  --output /path/to/smoke-test-experiment \
   --complex-type nanobody --max-residues 800 \
   --count 5 --seed 17
 ```
 
 | Option | Behaviour |
 | --- | --- |
-| `--source-release` | Required path to a completed canonical full release. |
-| `--output` | Required new directory; existing or overlapping destinations are rejected. |
+| `--source-release` | Required path to a completed canonical dataset, normally another experiment’s `inputs/`. |
+| `--output` | Required destination experiment folder. Its `inputs/` and `outputs/` must be absent or empty. Source/destination overlap is rejected. Other files, such as `run.env`, are preserved. |
 | `--ids ID ...` | Restrict selection to these unique complex IDs. Unknown IDs are errors. |
 | `--ids-file FILE` | Alternative to `--ids`: one complex ID per nonempty UTF-8 line. |
 | `--complex-type all\|nanobody\|antibody` | Keep both types (default), heavy-only antibodies, or heavy/light antibodies. Each complex also contains its antigen. |
@@ -253,64 +261,84 @@ before sampling. Empty selections, unsupported chain mappings and requests for m
 complexes than qualify are errors. Random sampling uses sorted candidate IDs and
 the recorded seed, so the same source and criteria reproduce the selection.
 
-The output contains:
+The destination contains:
 
 ```text
-test-release/
-├── run_manifest.json
-├── benchmark/
-│   ├── registry.tsv
-│   ├── benchmark.fasta
-│   ├── dataset_features.csv
-│   └── structures/<complex_id>.cif
-└── provenance/source/
-    ├── run_manifest.json
-    └── benchmark/
-        ├── registry.tsv
-        ├── benchmark.fasta
-        └── dataset_features.csv
+smoke-test-experiment/
+├── inputs/
+│   ├── run_manifest.json
+│   ├── benchmark/
+│   │   ├── registry.tsv
+│   │   ├── benchmark.fasta
+│   │   ├── dataset_features.csv
+│   │   └── structures/<complex_id>.cif
+│   └── provenance/source/
+│       ├── run_manifest.json
+│       └── benchmark/
+│           ├── registry.tsv
+│           ├── benchmark.fasta
+│           └── dataset_features.csv
+└── outputs/                         # Empty after subset export
 ```
 
-Every artifact under `benchmark/` contains exactly the selected complexes. The
+Every artifact under `inputs/benchmark/` contains exactly the selected complexes. The
 manifest declares `release_kind=subset`, the selected IDs, selection criteria,
 source-manifest identity, selected native hashes and exported artifact hashes.
 It records a completed subset export rather than completed pipeline stages.
-`provenance/source/` preserves the original manifest and complete source metadata
+`inputs/provenance/source/` preserves the original manifest and complete source metadata
 for independent selection verification; those records do not add prediction targets.
 The subset can be validated after the original release has been moved or removed.
 The source is never edited and the output is published only after validation.
 Source clustering diagnostics, intermediate files and plots are not copied.
 
-For universal_runner, point `OPENDDE_DATASET_RELEASE_DIR` at the exported directory,
+For universal_runner, point `OPENDDE_DATASET_RELEASE_DIR` at the experiment’s `inputs/`,
 set `DATASET_RELEASE_KIND=subset`, and set `OPENDDE_DATASET_MANIFEST_SHA256` to the
-new `run_manifest.json` hash. A five-complex export declares five targets for input
+new `inputs/run_manifest.json` hash. A five-complex export declares five targets for input
 preparation, prediction and evaluation.
 
-## Outputs
+## Experiment layout
+
+`--output` is the experiment folder, not the dataset directory itself. It is
+required unless `[output].experiment_dir` is set in the TOML configuration.
+Relative TOML paths are resolved against the configuration file. `--run-name`
+sets the manifest profile label; it does not add another directory.
+
+A full run creates:
 
 ```text
-data/<run-name>/
-├── run_manifest.json
-├── intermediate/
-├── scratch/
-├── logs/
-└── benchmark/
-    ├── registry.tsv
-    ├── structures/
-    ├── benchmark.fasta
-    ├── edges.tsv
-    ├── clusters.tsv
-    ├── representatives.tsv
-    ├── linkage.npy
-    ├── nodes.json
-    ├── leakage_summary.txt
-    └── dataset_features.csv
-
-plots/<run-name>/
+my-experiment/
+├── inputs/
+│   ├── run_manifest.json
+│   └── benchmark/
+│       ├── registry.tsv
+│       ├── structures/
+│       ├── benchmark.fasta
+│       ├── edges.tsv
+│       ├── clusters.tsv
+│       ├── representatives.tsv
+│       ├── linkage.npy
+│       ├── nodes.json
+│       ├── leakage_summary.txt
+│       └── dataset_features.csv
+└── outputs/
+    └── abagbench/
+        ├── intermediate/
+        ├── scratch/
+        ├── logs/
+        └── plots/
 ```
 
-The manifest records the resolved configuration, canonical status, input and output
-hashes, software versions, and per-stage timing and memory.
+Directories are created automatically. The manifest records the resolved
+configuration, canonical status, input/output hashes, software versions and
+per-stage timing and memory. Dataset artifact paths are relative to `inputs/`;
+working-artifact and plot records refer to `../outputs/abagbench/`.
+
+Create the experiment's `run.env` from universal_runner's template and set
+`OPENDDE_DATASET_RELEASE_DIR="$EXPERIMENT_DIR/inputs"`. Select `full` or `subset`
+with `DATASET_RELEASE_KIND` and record the SHA-256 of `inputs/run_manifest.json`.
+The runner creates its preparation and inference directories under `outputs/`.
+AbAgBench does not create `run.env` or choose model settings, inference resources
+or prediction scratch storage.
 
 ## Tests
 

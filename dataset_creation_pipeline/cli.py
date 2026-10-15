@@ -16,9 +16,9 @@ def _common_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--sabdab-dir", type=Path, help="SAbDab2 directory containing the summary CSV and structures folder; it may be inside or outside the repository.")
     parser.add_argument("--summary-file", help="Summary CSV filename inside --sabdab-dir (default: sabdab_summary_all.csv).")
     parser.add_argument("--structures-dir", help="Structure directory name inside --sabdab-dir (default: sabdab_all_structures).")
-    parser.add_argument("--data-dir", type=Path, help="Base output directory (default: repository data/).")
-    parser.add_argument("--plots-dir", type=Path, help="Base plot directory (default: repository plots/).")
-    parser.add_argument("--run-name", help="Output subdirectory and manifest profile label (default: benchmark).")
+    parser.add_argument("--output", "--data-dir", dest="experiment_dir", type=Path,
+                        help="Destination experiment folder; creates inputs/ and outputs/. Required unless set in [output].experiment_dir.")
+    parser.add_argument("--run-name", help="Manifest profile label (default: benchmark); does not add a directory.")
     parser.add_argument("--cutoff", help="PDB release cutoff YYYY-MM-DD; entries released strictly before it are excluded and form the FoldSeek reference set.")
     parser.add_argument("--methods", nargs="+", choices=("xray", "em"), help="Allowed methods: xray, em, or both. Changing this changes dataset membership.")
     parser.add_argument("--resolution-min", type=float, help="Inclusive minimum resolution in Å; default 1.0. Changing this changes dataset membership.")
@@ -58,10 +58,8 @@ def _resolved_config(args: argparse.Namespace) -> PipelineConfig:
         inp = dataclasses.replace(inp, summary_file=args.summary_file)
     if args.structures_dir is not None:
         inp = dataclasses.replace(inp, structures_dir=args.structures_dir)
-    if args.data_dir is not None:
-        out = dataclasses.replace(out, data_dir=args.data_dir.expanduser().resolve())
-    if args.plots_dir is not None:
-        out = dataclasses.replace(out, plots_dir=args.plots_dir.expanduser().resolve())
+    if args.experiment_dir is not None:
+        out = dataclasses.replace(out, experiment_dir=args.experiment_dir.expanduser().resolve())
     if args.run_name is not None:
         out = dataclasses.replace(out, run_name=args.run_name)
     selection_values = {}
@@ -116,8 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--from-stage", default="1", help="First stage to run (1–7 or release-screen, quality-filter, sequence-extraction, cdr-filter, structural-deleak, clustering, feature-assembly); requires a matching resume manifest.")
     run_parser.add_argument("--to-stage", default="7", help="Last stage to run (same values as --from-stage).")
     subset = subparsers.add_parser("subset", help="Export selected complexes from a completed canonical release.")
-    subset.add_argument("--source-release", required=True, type=Path)
-    subset.add_argument("--output", required=True, type=Path, help="New release directory; must not exist or overlap the source.")
+    subset.add_argument("--source-release", required=True, type=Path, help="Completed source dataset directory containing run_manifest.json, normally another experiment's inputs/.")
+    subset.add_argument("--output", required=True, type=Path, help="Destination experiment folder; creates inputs/ with the subset and an empty outputs/.")
     ids = subset.add_mutually_exclusive_group()
     ids.add_argument("--ids", nargs="+", help="Explicit complex IDs; other filters apply within this selection.")
     ids.add_argument("--ids-file", type=Path, help="UTF-8 file with one complex ID per nonempty line.")
@@ -145,6 +143,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(result, indent=2))
             return 0
         config = _resolved_config(args)
+        if args.command == "run" and args.dry_run and (args.force or args.resume):
+            raise ValueError("--dry-run cannot be combined with --force or --resume")
+        config.output.root
         if config.resources.device == "cpu":
             print(
                 "WARNING: CPU and GPU FoldSeek modes are not dataset-equivalent. "
@@ -155,8 +156,6 @@ def main(argv: list[str] | None = None) -> int:
             report = run_preflight(config, require_foldseek=True)
             print(json.dumps(report, indent=2))
             return 0
-        if args.dry_run and (args.force or args.resume):
-            raise ValueError("--dry-run cannot be combined with --force or --resume")
         from .pipeline import run_pipeline
 
         result = run_pipeline(

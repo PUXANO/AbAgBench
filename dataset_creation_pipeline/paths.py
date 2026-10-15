@@ -7,11 +7,13 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = Path(os.environ.get("ABAG_DATA_DIR", REPOSITORY_ROOT / "data")).expanduser().resolve()
-INTERMEDIATE_ROOT = DATA_ROOT / "intermediate"
-SCRATCH_ROOT = DATA_ROOT / "scratch"
+DATA_ROOT = Path(os.environ.get("ABAG_DATA_DIR", REPOSITORY_ROOT / "inputs")).expanduser().resolve()
+OUTPUT_ROOT = Path(os.environ.get("ABAG_OUTPUT_DIR", DATA_ROOT.parent / "outputs" / "abagbench")).expanduser().resolve()
+INTERMEDIATE_ROOT = OUTPUT_ROOT / "intermediate"
+SCRATCH_ROOT = OUTPUT_ROOT / "scratch"
+LOGS_ROOT = OUTPUT_ROOT / "logs"
 BENCHMARK_DIR = DATA_ROOT / "benchmark"
-PLOTS_ROOT = Path(os.environ.get("ABAG_PLOTS_DIR", REPOSITORY_ROOT / "plots")).expanduser().resolve()
+PLOTS_ROOT = Path(os.environ.get("ABAG_PLOTS_DIR", OUTPUT_ROOT / "plots")).expanduser().resolve()
 
 _sabdab_root = os.environ.get("SABDAB2_DIR")
 SABDAB2_DATA = Path(_sabdab_root).expanduser().resolve() if _sabdab_root else None
@@ -25,6 +27,8 @@ SABDAB2_STRUCTURE_DIR = SABDAB2_DATA / SABDAB2_STRUCTURES_NAME if SABDAB2_DATA e
 class PipelinePaths:
     repository_root: Path = REPOSITORY_ROOT
     data_root: Path = DATA_ROOT
+    output_root: Path = OUTPUT_ROOT
+    logs: Path = LOGS_ROOT
     intermediate: Path = INTERMEDIATE_ROOT
     scratch: Path = SCRATCH_ROOT
     benchmark: Path = BENCHMARK_DIR

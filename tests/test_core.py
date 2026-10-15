@@ -76,15 +76,14 @@ def test_manifest_configuration_omits_machine_specific_paths(tmp_path):
             sabdab_dir=tmp_path / "private" / "sabdab_database",
         ),
         output=OutputConfig(
-            data_dir=tmp_path / "private" / "data",
-            plots_dir=tmp_path / "private" / "plots",
+            experiment_dir=tmp_path / "private" / "experiment",
         ),
         resources=ResourceConfig(foldseek_bin=str(tmp_path / "env" / "bin" / "foldseek")),
     ).resolved()
 
     public_config = config.as_dict()
     assert public_config["input"]["sabdab_dir"] == "sabdab_database"
-    assert public_config["output"]["data_dir"] == "data"
+    assert public_config["output"]["experiment_dir"] == "experiment"
     assert public_config["resources"]["foldseek_bin"] == "foldseek"
     assert str(tmp_path) not in json.dumps(public_config)
 

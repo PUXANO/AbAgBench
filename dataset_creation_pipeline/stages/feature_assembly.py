@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..paths import DATA_ROOT, BENCHMARK_DIR
+from ..paths import LOGS_ROOT, DATA_ROOT, BENCHMARK_DIR
 from ..utils import atomic_write_dataframe
 
 FILTERED_TSV = BENCHMARK_DIR / "registry.tsv"
@@ -70,7 +70,7 @@ def run() -> dict:
     print(f"  EM={n_em:,}  X-ray={n_xray:,}  nanobodies="
           f"{int(df['is_nanobody'].sum()):,}")
 
-    LOG_DIR = DATA_ROOT / "logs"
+    LOG_DIR = LOGS_ROOT
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"assemble_features_{timestamp}.log"

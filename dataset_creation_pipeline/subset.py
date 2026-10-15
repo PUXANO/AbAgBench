@@ -28,11 +28,17 @@ def artifact_record(root: Path, relative: str) -> dict:
 def export_subset(source: Path, output: Path, *, ids: list[str] | None = None,
                   complex_type: str = "all", max_residues: int | None = None,
                   count: int | None = None, seed: int | None = None) -> dict:
-    source, output = source.resolve(), output.resolve()
+    source, output = source.expanduser().resolve(), output.expanduser().resolve()
     if source.is_relative_to(output) or output.is_relative_to(source):
-        raise ValueError("Source and destination releases must not overlap")
-    if output.exists():
-        raise FileExistsError(f"Destination already exists: {output}")
+        raise ValueError("Source dataset and destination experiment must not overlap")
+    if output.exists() and not output.is_dir():
+        raise FileExistsError(f"Destination is not an experiment directory: {output}")
+    # An experiment may already contain run.env or a runner checkout. Export only
+    # into unused inputs/ with absent or empty outputs/, preserving other content.
+    for name in ("inputs", "outputs"):
+        path = output / name
+        if path.is_symlink() or (path.exists() and (not path.is_dir() or any(path.iterdir()))):
+            raise FileExistsError(f"Destination {name}/ must be absent or empty: {path}")
     summary = validate_release(source, "full")
     source_hashes = {relative: _sha256(source / relative) for relative in SOURCE_FILES}
     criteria = {"ids": ids, "complex_type": complex_type, "max_residues": max_residues,
@@ -46,10 +52,11 @@ def export_subset(source: Path, output: Path, *, ids: list[str] | None = None,
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
     try:
-        benchmark = staging / "benchmark"
+        dataset = staging / "inputs"
+        benchmark = dataset / "benchmark"
         (benchmark / "structures").mkdir(parents=True)
         for relative in SOURCE_FILES:
-            destination = staging / "provenance/source" / relative
+            destination = dataset / "provenance/source" / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source / relative, destination)
             if _sha256(destination) != source_hashes[relative]:
@@ -76,18 +83,28 @@ def export_subset(source: Path, output: Path, *, ids: list[str] | None = None,
                        "selected_native_sha256": native_hashes},
             "selection": criteria, "selected_targets": selected,
             "subset_export": {"status": "completed", "outputs": [
-                artifact_record(staging, p) for p in ARTIFACTS]},
+                artifact_record(dataset, p) for p in ARTIFACTS]},
         }
-        (staging / "run_manifest.json").write_text(
+        (dataset / "run_manifest.json").write_text(
             json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        validate_release(staging, "subset")
+        validate_release(dataset, "subset")
         # Validate source again before publication, including all native hashes.
         if validate_release(source, "full")["manifest_sha256"] != summary["manifest_sha256"]:
             raise ValueError("Source release changed during export")
-        if output.exists():
-            raise FileExistsError(f"Destination already exists: {output}")
-        staging.rename(output)
+        (staging / "outputs").mkdir()
+        if not output.exists():
+            staging.rename(output)
+        else:
+            for name in ("inputs", "outputs"):
+                path = output / name
+                if path.is_symlink() or (path.exists() and (not path.is_dir() or any(path.iterdir()))):
+                    raise FileExistsError(f"Destination {name}/ changed during export: {path}")
+            # Replacing an empty directory publishes the dataset atomically.
+            dataset.rename(output / "inputs")
+            (output / "outputs").mkdir(exist_ok=True)
     finally:
         if staging.exists():
             shutil.rmtree(staging)
-    return validate_release(output, "subset")
+    result = validate_release(output / "inputs", "subset")
+    result["experiment_dir"] = str(output)
+    return result

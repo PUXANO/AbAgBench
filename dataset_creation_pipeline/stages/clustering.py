@@ -36,7 +36,7 @@ from ..foldseek_utils import (
     parse_report,
     run_foldseek,
 )
-from ..paths import DATA_ROOT, INTERMEDIATE_ROOT, SCRATCH_ROOT, BENCHMARK_DIR as FINAL_BENCHMARK_DIR
+from ..paths import LOGS_ROOT, DATA_ROOT, INTERMEDIATE_ROOT, SCRATCH_ROOT, BENCHMARK_DIR as FINAL_BENCHMARK_DIR
 from ..utils import (
     StageMetrics,
     atomic_write_json,
@@ -569,7 +569,7 @@ def _write_leakage_summary(leakage: dict, diagnostics: dict, clusters: dict) -> 
 
 
 def _write_log(registry, reps, clusters, leakage, diagnostics, representative_rule) -> None:
-    log_dir = DATA_ROOT / "logs"
+    log_dir = LOGS_ROOT
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = log_dir / f"s6_foldseek_cluster_{ts}.log"

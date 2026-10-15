@@ -23,13 +23,26 @@ class InputConfig:
 
 @dataclass(frozen=True)
 class OutputConfig:
-    data_dir: Path = REPOSITORY_ROOT / "data"
-    plots_dir: Path = REPOSITORY_ROOT / "plots"
+    experiment_dir: Path | None = None
     run_name: str = "benchmark"
 
     @property
+    def root(self) -> Path:
+        if self.experiment_dir is None:
+            raise ValueError("Specify the experiment folder with --output or [output].experiment_dir")
+        return self.experiment_dir
+
+    @property
     def run_dir(self) -> Path:
-        return self.data_dir / self.run_name
+        return self.root / "inputs"
+
+    @property
+    def results_dir(self) -> Path:
+        return self.root / "outputs" / "abagbench"
+
+    @property
+    def plots_dir(self) -> Path:
+        return self.results_dir / "plots"
 
 
 @dataclass(frozen=True)
@@ -127,6 +140,14 @@ class PipelineConfig:
             raise ValueError("summary_file must be a filename inside --sabdab-dir")
         if not self.output.run_name or Path(self.output.run_name).name != self.output.run_name:
             raise ValueError("run_name must be one path component")
+        if self.input.sabdab_dir is not None and self.output.experiment_dir is not None:
+            source = self.input.sabdab_dir.expanduser().resolve()
+            for managed in (self.output.run_dir, self.output.root / "outputs"):
+                managed = managed.expanduser().resolve()
+                for artifact in (source / self.input.summary_file, source / self.input.structures_dir):
+                    artifact = artifact.resolve()
+                    if artifact.is_relative_to(managed) or managed.is_relative_to(artifact):
+                        raise ValueError("SAbDab database files must not overlap experiment inputs/ or outputs/")
 
     def resolved(self) -> "PipelineConfig":
         """Expand user paths without changing the scientific configuration."""
@@ -136,8 +157,7 @@ class PipelineConfig:
             structures_dir=self.input.structures_dir,
         )
         output_cfg = OutputConfig(
-            data_dir=self.output.data_dir.expanduser().resolve(),
-            plots_dir=self.output.plots_dir.expanduser().resolve(),
+            experiment_dir=self.output.experiment_dir.expanduser().resolve() if self.output.experiment_dir else None,
             run_name=self.output.run_name,
         )
         resources_cfg = ResourceConfig(
@@ -159,8 +179,8 @@ class PipelineConfig:
                     result[section][key] = str(value)
         if self.input.sabdab_dir is not None:
             result["input"]["sabdab_dir"] = self.input.sabdab_dir.name
-        result["output"]["data_dir"] = Path(self.output.data_dir).name
-        result["output"]["plots_dir"] = Path(self.output.plots_dir).name
+        if self.output.experiment_dir is not None:
+            result["output"]["experiment_dir"] = self.output.experiment_dir.name
         if self.resources.foldseek_bin is not None:
             result["resources"]["foldseek_bin"] = Path(self.resources.foldseek_bin).name
         result["selection"]["methods"] = list(self.selection.methods)
@@ -189,7 +209,7 @@ def _config_from_mapping(data: dict[str, Any]) -> PipelineConfig:
         selection["methods"] = tuple(str(x).lower() for x in selection["methods"])
     if "sabdab_dir" in inp and inp["sabdab_dir"] is not None:
         inp["sabdab_dir"] = Path(inp["sabdab_dir"])
-    for key in ("data_dir", "plots_dir"):
+    for key in ("experiment_dir",):
         if key in out:
             out[key] = Path(out[key])
     cfg = PipelineConfig(
@@ -209,7 +229,7 @@ def load_config(path: Path | None = None) -> PipelineConfig:
     with path.expanduser().open("rb") as handle:
         raw = tomllib.load(handle)
     output = raw.get("output", {})
-    for key in ("data_dir", "plots_dir"):
+    for key in ("experiment_dir",):
         if key in output:
             value = Path(output[key]).expanduser()
             output[key] = value if value.is_absolute() else path.expanduser().resolve().parent / value
@@ -226,7 +246,8 @@ def configure_environment(config: PipelineConfig) -> None:
     os.environ["SABDAB2_SUMMARY_FILE"] = config.input.summary_file
     os.environ["SABDAB2_STRUCTURES_DIR"] = config.input.structures_dir
     os.environ["ABAG_DATA_DIR"] = str(config.output.run_dir)
-    os.environ["ABAG_PLOTS_DIR"] = str(config.output.plots_dir / config.output.run_name)
+    os.environ["ABAG_OUTPUT_DIR"] = str(config.output.results_dir)
+    os.environ["ABAG_PLOTS_DIR"] = str(config.output.plots_dir)
     os.environ["ABAG_MIN_RESIDUES"] = str(config.selection.min_residues)
     os.environ["ABAG_MAX_RESIDUES"] = str(config.selection.max_residues)
     os.environ["ABAG_RESOLUTION_MIN"] = str(config.selection.resolution_min)

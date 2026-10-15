@@ -134,6 +134,7 @@ def test_stage_excludes_and_records_long_h3(monkeypatch, tmp_path, ordinary_stat
     cif = tmp_path / "source.cif"
     cif.write_text("synthetic source\n")
     monkeypatch.setattr(cdr_filter, "DATA_ROOT", tmp_path)
+    monkeypatch.setattr(cdr_filter, "LOGS_ROOT", tmp_path / "logs")
     monkeypatch.setattr(cdr_filter, "INTERMEDIATE_ROOT", intermediate)
     monkeypatch.setattr(cdr_filter, "INPUT_TSV", intermediate / "02_quality_filtered.tsv")
     monkeypatch.setattr(cdr_filter, "FILTERED_TSV", intermediate / "04_cdr_filtered.tsv")

@@ -5,8 +5,7 @@ summary_file = "sabdab_summary_all.csv"
 structures_dir = "sabdab_all_structures"
 
 [output]
-data_dir = "../data"
-plots_dir = "../plots"
+# Supply the experiment folder with --output or experiment_dir here.
 run_name = "benchmark"
 
 [selection]

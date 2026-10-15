@@ -48,6 +48,7 @@ def run_preflight(config: PipelineConfig, require_foldseek: bool = True) -> dict
     notes: list[str] = []
     if config.input.sabdab_dir is None:
         raise FileNotFoundError("SAbDab2 input is required; pass --sabdab-dir or set it in the TOML config")
+    config.output.root
 
     sabdab_dir = config.input.sabdab_dir
     summary_path = sabdab_dir / config.input.summary_file
@@ -176,7 +177,7 @@ def run_preflight(config: PipelineConfig, require_foldseek: bool = True) -> dict
         nearest = nearest.parent
     if not nearest.is_dir() or not os.access(nearest, os.W_OK):
         errors.append(f"Output parent is not writable: {nearest}")
-    plots_parent = (config.output.plots_dir / config.output.run_name).parent
+    plots_parent = config.output.plots_dir.parent
     nearest_plots = plots_parent
     while not nearest_plots.exists() and nearest_plots != nearest_plots.parent:
         nearest_plots = nearest_plots.parent
@@ -205,7 +206,8 @@ def run_preflight(config: PipelineConfig, require_foldseek: bool = True) -> dict
         "structure_file_count": cif_count,
         "structure_size_bytes": cif_size,
         "estimated_uncompressed_structure_size_bytes": uncompressed_cif_size,
-        "output_run_dir": config.output.run_dir.name,
+        "output_run_dir": str(config.output.run_dir),
+        "experiment_dir": str(config.output.root),
         "free_disk_bytes": free_disk,
         # The resolved path is consumed internally by the stage runner; the
         # manifest serializer stores only the executable basename.

@@ -17,7 +17,7 @@ from typing import Optional
 
 import pandas as pd
 
-from ..paths import DATA_ROOT, INTERMEDIATE_ROOT, SCRATCH_ROOT
+from ..paths import LOGS_ROOT, DATA_ROOT, INTERMEDIATE_ROOT, SCRATCH_ROOT
 from ..utils import (
     CHOTHIA_CDR_RANGES,
     CHOTHIA_MAX_CDRH3_LENGTH,
@@ -361,7 +361,7 @@ def run(
     print(f"  Survivor structures: {SCRATCH_SURVIVORS} ({survivors_on_disk:,} CIF files)")
     print(f"  Registry: {FILTERED_TSV}")
 
-    LOG_DIR = DATA_ROOT / "logs"
+    LOG_DIR = LOGS_ROOT
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"quality_filter_s4_{timestamp}.log"

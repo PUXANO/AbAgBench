@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..paths import DATA_ROOT, INTERMEDIATE_ROOT
+from ..paths import LOGS_ROOT, DATA_ROOT, INTERMEDIATE_ROOT
 from ..utils import (
     StageMetrics,
     chain_full_sequences,
@@ -79,7 +79,7 @@ def run(processes: int | None = None) -> dict:
     print(f"\n  In-memory FASTA for {len(fastas):,} complexes "
           f"({sum(len(v) for v in fastas.values()):,} chains).")
 
-    LOG_DIR = DATA_ROOT / "logs"
+    LOG_DIR = LOGS_ROOT
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"pdb_to_fasta_{timestamp}.log"

@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from ..paths import DATA_ROOT, INTERMEDIATE_ROOT, SABDAB2_SUMMARY_CSV
+from ..paths import LOGS_ROOT, DATA_ROOT, INTERMEDIATE_ROOT, SABDAB2_SUMMARY_CSV
 from ..utils import (
     StageMetrics,
     atomic_write_dataframe,
@@ -510,7 +510,7 @@ def run(force: bool = False, lower: int = LOWER_RESIDUES, upper: int = UPPER_RES
           f"(EM={n_em:,}, X-ray={n_xray:,})")
     print(f"  Registry: {out_path}")
 
-    LOG_DIR = DATA_ROOT / "logs"
+    LOG_DIR = LOGS_ROOT
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = LOG_DIR / f"quality_filter_{timestamp}.log"

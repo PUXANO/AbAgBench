@@ -117,7 +117,9 @@ def _stage_outputs_match(number: int, recorded: list[dict[str, Any]], base: Path
     that stage-7 output when validating an earlier directory fingerprint.
     """
     if number == 4 and not any(
-        item.get("path") == "intermediate/04_cdr_exclusions.tsv" for item in recorded
+        item.get("path") in {"intermediate/04_cdr_exclusions.tsv",
+                             "../outputs/abagbench/intermediate/04_cdr_exclusions.tsv"}
+        for item in recorded
     ):
         # Older completed stages have no durable numbering-exclusion audit.
         # Recompute stage 4 to adopt the eligibility rule and output contract.
@@ -229,7 +231,7 @@ def _write_dry_run(config: PipelineConfig, report: dict[str, Any]) -> None:
     print(json.dumps({
         "profile": config.output.run_name,
         "data_output": str(config.output.run_dir),
-        "plots_output": str(config.output.plots_dir / config.output.run_name),
+        "plots_output": str(config.output.plots_dir),
         "cutoff_date": config.selection.cutoff_date,
         "methods": list(config.selection.methods),
         "resolution_angstrom": [config.selection.resolution_min, config.selection.resolution_max],
@@ -287,7 +289,7 @@ def run_pipeline(
     configure_environment(config)
     # Import stages after output/input paths and filter settings are resolved.
     from . import plotting
-    from .paths import BENCHMARK_DIR, DATA_ROOT, INTERMEDIATE_ROOT, PLOTS_ROOT, SCRATCH_ROOT
+    from .paths import BENCHMARK_DIR, DATA_ROOT, INTERMEDIATE_ROOT, PLOTS_ROOT, SCRATCH_ROOT, LOGS_ROOT
     from .stages import cdr_filter, clustering, feature_assembly, quality_filter
     from .stages import release_screen, sequence_extraction, structural_deleak
 
@@ -299,7 +301,7 @@ def run_pipeline(
     input_snapshot, input_fp = _source_snapshot(config, include_cif_hashes=True)
 
     run_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = DATA_ROOT / "logs"
+    log_dir = LOGS_ROOT
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"run_{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     previous_records = previous_manifest.get("stages", {}) if resume else {}
@@ -325,7 +327,7 @@ def run_pipeline(
             "host_platform": report.get("python_version"),
         },
         "notes": report.get("notes", []),
-        "run_log": str(log_path.relative_to(DATA_ROOT)),
+        "run_log": os.path.relpath(log_path, DATA_ROOT),
         "stages": copy.deepcopy(previous_records),
     }
 

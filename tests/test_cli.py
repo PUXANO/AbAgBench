@@ -39,8 +39,7 @@ device = "cpu"
             "--sabdab-dir", str(tmp_path / "sabdab2"),
             "--summary-file", "summary.csv",
             "--structures-dir", "structures",
-            "--data-dir", str(tmp_path / "data"),
-            "--plots-dir", str(tmp_path / "plots"),
+            "--output", str(tmp_path / "experiment"),
             "--run-name", "cli-overrides",
             "--cutoff", "2024-01-02",
             "--methods", "xray",
@@ -67,8 +66,9 @@ device = "cpu"
     assert config.input.sabdab_dir == (tmp_path / "sabdab2").resolve()
     assert config.input.summary_file == "summary.csv"
     assert config.input.structures_dir == "structures"
-    assert config.output.data_dir == (tmp_path / "data").resolve()
-    assert config.output.plots_dir == (tmp_path / "plots").resolve()
+    assert config.output.experiment_dir == (tmp_path / "experiment").resolve()
+    assert config.output.run_dir == (tmp_path / "experiment/inputs").resolve()
+    assert config.output.plots_dir == (tmp_path / "experiment/outputs/abagbench/plots").resolve()
     assert config.output.run_name == "cli-overrides"
     assert config.selection.cutoff_date == "2024-01-02"
     assert config.selection.methods == ("xray",)
@@ -129,8 +129,7 @@ def test_configured_values_reach_stage_environment(monkeypatch, tmp_path):
             "--sabdab-dir", str(tmp_path / "sabdab2"),
             "--summary-file", "summary.csv",
             "--structures-dir", "structures",
-            "--data-dir", str(tmp_path / "data"),
-            "--plots-dir", str(tmp_path / "plots"),
+            "--output", str(tmp_path / "experiment"),
             "--run-name", "environment-smoke",
             "--methods", "em",
             "--resolution-min", "1.3",
@@ -154,8 +153,9 @@ def test_configured_values_reach_stage_environment(monkeypatch, tmp_path):
         "SABDAB2_DIR": str((tmp_path / "sabdab2").resolve()),
         "SABDAB2_SUMMARY_FILE": "summary.csv",
         "SABDAB2_STRUCTURES_DIR": "structures",
-        "ABAG_DATA_DIR": str((tmp_path / "data" / "environment-smoke").resolve()),
-        "ABAG_PLOTS_DIR": str((tmp_path / "plots" / "environment-smoke").resolve()),
+        "ABAG_DATA_DIR": str((tmp_path / "experiment/inputs").resolve()),
+        "ABAG_OUTPUT_DIR": str((tmp_path / "experiment/outputs/abagbench").resolve()),
+        "ABAG_PLOTS_DIR": str((tmp_path / "experiment/outputs/abagbench/plots").resolve()),
         "ABAG_METHODS": "em",
         "ABAG_RESOLUTION_MIN": "1.3",
         "ABAG_RESOLUTION_MAX": "3.1",
@@ -313,6 +313,7 @@ def test_main_dispatches_validate_with_resolved_flags(monkeypatch, tmp_path, cap
         [
             "validate",
             "--sabdab-dir", str(tmp_path / "sabdab2"),
+            "--output", str(tmp_path / "experiment"),
             "--device", "cpu",
             "--workers", "6",
         ]
@@ -346,6 +347,7 @@ def test_main_dispatches_run_control_flags(
         [
             "run",
             "--sabdab-dir", str(tmp_path / "sabdab2"),
+            "--output", str(tmp_path / "experiment"),
             mode_flag,
             "--from-stage", "quality-filter",
             "--to-stage", "clustering",
@@ -370,7 +372,7 @@ def test_main_dispatches_dry_run(monkeypatch, tmp_path):
     import dataset_creation_pipeline.pipeline as pipeline
 
     monkeypatch.setattr(pipeline, "run_pipeline", fake_run_pipeline)
-    assert cli.main(["run", "--sabdab-dir", str(tmp_path), "--dry-run"]) == 0
+    assert cli.main(["run", "--sabdab-dir", str(tmp_path / "sabdab"), "--output", str(tmp_path / "experiment"), "--dry-run"]) == 0
     assert captured["dry_run"] is True
 
 
@@ -385,6 +387,7 @@ def test_cpu_mode_emits_noncanonical_warning(monkeypatch, tmp_path, capsys):
     assert cli.main([
         "run",
         "--sabdab-dir", str(tmp_path / "sabdab2"),
+            "--output", str(tmp_path / "experiment"),
         "--device", "cpu",
     ]) == 0
     assert "non-canonical" in capsys.readouterr().err
@@ -429,11 +432,9 @@ def test_all_stage_names_and_numbers_and_invalid_ranges():
 
 def test_pipeline_dry_run_is_non_writing(monkeypatch, tmp_path, capsys):
     data_dir = tmp_path / "not-created-data"
-    plots_dir = tmp_path / "not-created-plots"
     config = PipelineConfig(
         output=PipelineConfig().output.__class__(
-            data_dir=data_dir,
-            plots_dir=plots_dir,
+            experiment_dir=data_dir,
             run_name="fixture-dry-run",
         )
     )
@@ -448,7 +449,6 @@ def test_pipeline_dry_run_is_non_writing(monkeypatch, tmp_path, capsys):
     result = run_pipeline(config, dry_run=True)
     assert result["dry_run"] is True
     assert not data_dir.exists()
-    assert not plots_dir.exists()
     assert "no output directories or files were created" in capsys.readouterr().out
 
 
@@ -497,9 +497,8 @@ def test_preflight_functional_smoke_accepts_public_fixture_layout(
                 "--sabdab-dir", str(sabdab),
                 "--device", "cpu",
                 "--foldseek-bin", str(foldseek),
-                "--data-dir", str(tmp_path / "data"),
-                "--plots-dir", str(tmp_path / "plots"),
-            ]
+                "--output", str(tmp_path / "experiment"),
+                ]
         )
     )
     report = run_preflight(config)

@@ -47,6 +47,7 @@ def test_clustering_exports_representative_using_requested_rule(
     final = tmp_path / "benchmark"
     for name, value in {
         "DATA_ROOT": tmp_path,
+        "LOGS_ROOT": tmp_path / "logs",
         "INTERMEDIATE_ROOT": intermediate,
         "INPUT_TSV": input_tsv,
         "STAGE_METRICS_PATH": stage_metrics,

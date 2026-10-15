@@ -21,28 +21,28 @@ def test_explicit_subset_preserves_source_and_exports_only_selected_rows(tmp_pat
     assert result["complexes"] == 2
     assert snapshot(source) == original
     for name, delimiter in (("registry.tsv", "\t"), ("dataset_features.csv", ",")):
-        assert list(read_table(output / "benchmark" / name, delimiter)[1]) == ["1abc_HA", "2abc_HLA"]
-    assert set(read_fasta(output / "benchmark/benchmark.fasta")) == {"1abc_HA", "2abc_HLA"}
-    assert sorted(p.stem for p in (output / "benchmark/structures").iterdir()) == ["1abc_HA", "2abc_HLA"]
-    manifest = json.loads((output / "run_manifest.json").read_text())
+        assert list(read_table(output / "inputs/benchmark" / name, delimiter)[1]) == ["1abc_HA", "2abc_HLA"]
+    assert set(read_fasta(output / "inputs/benchmark/benchmark.fasta")) == {"1abc_HA", "2abc_HLA"}
+    assert sorted(p.stem for p in (output / "inputs/benchmark/structures").iterdir()) == ["1abc_HA", "2abc_HLA"]
+    manifest = json.loads((output / "inputs/run_manifest.json").read_text())
     assert "stages" not in manifest
     assert manifest["execution"]["canonical"] is False
     assert manifest["selection"]["ids"] == ["2abc_HLA", "1abc_HA"]
     # Runtime validation is portable and does not consult the original release.
     source.rename(tmp_path / "moved-source")
-    assert validate_release(output, "subset")["complexes"] == 2
+    assert validate_release(output / "inputs", "subset")["complexes"] == 2
 
 
 def test_filters_then_reproducible_sampling_and_inclusive_size(tmp_path):
     source = make_release(tmp_path / "source")
     for name in ("a", "b"):
         export_subset(source, tmp_path / name, complex_type="nanobody", max_residues=7, count=2, seed=17)
-    manifests = [json.loads((tmp_path / n / "run_manifest.json").read_text()) for n in ("a", "b")]
+    manifests = [json.loads((tmp_path / n / "inputs/run_manifest.json").read_text()) for n in ("a", "b")]
     assert manifests[0]["selected_targets"] == manifests[1]["selected_targets"]
     assert len(manifests[0]["selected_targets"]) == 2
     assert set(manifests[0]["selected_targets"]) <= {"1abc_HA", "3abc_HA", "5abc_HA"}
     export_subset(source, tmp_path / "antibodies", complex_type="antibody", max_residues=8)
-    assert json.loads((tmp_path / "antibodies/run_manifest.json").read_text())["selected_targets"] == ["2abc_HLA", "4abc_HLA"]
+    assert json.loads((tmp_path / "antibodies/inputs/run_manifest.json").read_text())["selected_targets"] == ["2abc_HLA", "4abc_HLA"]
 
 
 def test_sampling_is_independent_of_requested_id_order(tmp_path):
@@ -50,7 +50,7 @@ def test_sampling_is_independent_of_requested_id_order(tmp_path):
     ids = ["1abc_HA", "2abc_HLA", "3abc_HA", "4abc_HLA"]
     for name, requested in (("a", ids), ("b", list(reversed(ids)))):
         export_subset(source, tmp_path / name, ids=requested, count=2, seed=17)
-    targets = [json.loads((tmp_path / n / "run_manifest.json").read_text())["selected_targets"] for n in ("a", "b")]
+    targets = [json.loads((tmp_path / n / "inputs/run_manifest.json").read_text())["selected_targets"] for n in ("a", "b")]
     assert targets[0] == targets[1]
 
 
@@ -78,6 +78,8 @@ def test_rejects_existing_and_overlapping_destinations(tmp_path):
             export_subset(source, destination, ids=["1abc_HA"])
     existing = tmp_path / "existing"
     existing.mkdir()
+    (existing / "inputs").mkdir()
+    (existing / "inputs/keep.txt").write_text("preserve")
     with pytest.raises(FileExistsError):
         export_subset(source, existing, ids=["1abc_HA"])
 
@@ -119,13 +121,13 @@ def test_rehashed_subset_content_cannot_drift_from_source(tmp_path):
     source = make_release(tmp_path / "source")
     output = tmp_path / "output"
     export_subset(source, output, ids=["1abc_HA"])
-    path = output / "benchmark/benchmark.fasta"
+    path = output / "inputs/benchmark/benchmark.fasta"
     path.write_text(path.read_text().replace("AC", "AA"))
-    manifest = json.loads((output / "run_manifest.json").read_text())
-    manifest["subset_export"]["outputs"] = [artifact_record(output, r["path"]) for r in manifest["subset_export"]["outputs"]]
-    (output / "run_manifest.json").write_text(json.dumps(manifest))
+    manifest = json.loads((output / "inputs/run_manifest.json").read_text())
+    manifest["subset_export"]["outputs"] = [artifact_record(output / "inputs", r["path"]) for r in manifest["subset_export"]["outputs"]]
+    (output / "inputs/run_manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(ValueError, match="source sequences"):
-        validate_release(output, "subset")
+        validate_release(output / "inputs", "subset")
 
 
 def test_failed_staged_export_cleans_up(tmp_path):

@@ -52,12 +52,14 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
 
     monkeypatch.setattr(quality_filter, "SUMMARY_CSV", summary)
     monkeypatch.setattr(quality_filter, "DATA_ROOT", data_root)
+    monkeypatch.setattr(quality_filter, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(quality_filter, "INTERMEDIATE_ROOT", intermediate)
     monkeypatch.setattr(quality_filter, "TRAINING_IDS_JSON", release_screen.IDS_OUTPUT)
     monkeypatch.setattr(quality_filter, "FILTERED_TSV", intermediate / "02_quality_filtered.tsv")
     monkeypatch.setattr(quality_filter, "METRICS_OUTPUT", intermediate / "02_quality_metrics.json")
 
     monkeypatch.setattr(sequence_extraction, "DATA_ROOT", data_root)
+    monkeypatch.setattr(sequence_extraction, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(sequence_extraction, "FILTERED_TSV", quality_filter.FILTERED_TSV)
     monkeypatch.setattr(utils, "SABDAB2_STRUCTURE_DIR", structures)
     utils.parse_sabdab_cif.cache_clear()
@@ -68,6 +70,7 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
 
     scratch = data_root / "scratch"
     monkeypatch.setattr(cdr_filter, "DATA_ROOT", data_root)
+    monkeypatch.setattr(cdr_filter, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(cdr_filter, "INTERMEDIATE_ROOT", intermediate)
     monkeypatch.setattr(cdr_filter, "INPUT_TSV", quality_filter.FILTERED_TSV)
     monkeypatch.setattr(cdr_filter, "FILTERED_TSV", intermediate / "04_cdr_filtered.tsv")
@@ -82,6 +85,7 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
     stage4 = cdr_filter.run(fastas=stage3["fastas"])
 
     monkeypatch.setattr(structural_deleak, "DATA_ROOT", data_root)
+    monkeypatch.setattr(structural_deleak, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(structural_deleak, "INTERMEDIATE_ROOT", intermediate)
     monkeypatch.setattr(structural_deleak, "INPUT_TSV", cdr_filter.FILTERED_TSV)
     monkeypatch.setattr(structural_deleak, "FILTERED_TSV", intermediate / "05_deleaked.tsv")
@@ -107,6 +111,7 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
 
     final_benchmark = data_root / "benchmark"
     monkeypatch.setattr(clustering, "DATA_ROOT", data_root)
+    monkeypatch.setattr(clustering, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(clustering, "INTERMEDIATE_ROOT", intermediate)
     monkeypatch.setattr(clustering, "INPUT_TSV", structural_deleak.FILTERED_TSV)
     monkeypatch.setattr(clustering, "STAGE_METRICS_PATH", intermediate / "stage_metrics.json")
@@ -149,6 +154,7 @@ def test_public_fixture_executes_all_seven_stage_handoffs(
     )
 
     monkeypatch.setattr(feature_assembly, "DATA_ROOT", data_root)
+    monkeypatch.setattr(feature_assembly, "LOGS_ROOT", data_root / "logs")
     monkeypatch.setattr(feature_assembly, "FILTERED_TSV", final_benchmark / "registry.tsv")
     monkeypatch.setattr(feature_assembly, "OUTPUT_CSV", final_benchmark / "dataset_features.csv")
     stage7 = feature_assembly.run()
