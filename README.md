@@ -83,11 +83,17 @@ Run from the repository root:
 ```bash
 conda env create --file environment.yaml
 conda activate ab-ag-benchmark-gpu
+python -m pip install --no-deps --no-build-isolation -e .
 bash scripts/install_foldseek_linux.sh --gpu
 ```
 
-This installs the pinned Python environment and builds the required Foldseek commit as
-`$CONDA_PREFIX/bin/foldseek-pipeline`.
+This installs the pinned Python environment, registers the `abagbench` command,
+and builds the required Foldseek commit as `$CONDA_PREFIX/bin/foldseek-pipeline`.
+Activate the environment to make `abagbench` available on `PATH`. After pulling
+changes to command entry points, rerun the `pip install` command above.
+
+For a source checkout, `python -m dataset_creation_pipeline COMMAND` also invokes
+the CLI. The `abag-dataset-pipeline` command is an alias for `abagbench`.
 
 For Windows, run the commands above in Ubuntu under WSL2. If the checkout is on the
 Windows filesystem, the Foldseek build may instead be launched from PowerShell:
@@ -101,15 +107,15 @@ For non-canonical CPU development, use `environment-cpu.yaml` and
 
 ## Validate and run
 
-From the repository root:
+With the installed environment active, run from any working directory:
 
 ```bash
-python -m dataset_creation_pipeline validate \
+abagbench validate \
   --sabdab-dir /path/to/sabdab2 \
   --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline"
 
-python -m dataset_creation_pipeline run \
+abagbench run \
   --sabdab-dir /path/to/sabdab2 \
   --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
@@ -123,7 +129,7 @@ not run an alignment or fully parse every CIF.
 ## Slurm
 
 An `.sbatch` file may be stored anywhere. It only needs to change to the cloned
-repository, activate the environment, and invoke the same module entry point:
+repository, activate the environment, and invoke the same command:
 
 ```bash
 #!/usr/bin/env bash
@@ -139,7 +145,7 @@ set -euo pipefail
 source /absolute/path/to/miniforge3/etc/profile.d/conda.sh
 conda activate ab-ag-benchmark-gpu
 
-python -m dataset_creation_pipeline run \
+abagbench run \
   --sabdab-dir /absolute/path/to/sabdab2 \
   --output /absolute/path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
@@ -154,7 +160,7 @@ cannot see a GPU, build Foldseek once from an interactive GPU allocation.
 
 ## Options
 
-Run `python -m dataset_creation_pipeline run --help` for the complete interface.
+Run `abagbench run --help` for the complete interface.
 
 - Input/output: `--config`, `--sabdab-dir`, `--summary-file`, `--structures-dir`,
   `--output` (alias: `--data-dir`), `--run-name`
@@ -176,7 +182,7 @@ sequences, including unresolved residues. Equal sizes use the default quality or
 as a tie-break. Clustering itself is unchanged.
 
 ```bash
-python -m dataset_creation_pipeline run \
+abagbench run \
   --sabdab-dir /absolute/path/to/sabdab2 \
   --output /absolute/path/to/my-experiment \
   --run-name benchmark-smallest \
@@ -192,7 +198,7 @@ The resolved selection flag and effective stage-6 rule are recorded in the run m
 To restart a failed stage 5 while reusing verified stages 1–4:
 
 ```bash
-python -m dataset_creation_pipeline run \
+abagbench run \
   --sabdab-dir /path/to/sabdab2 \
   --output /path/to/my-experiment \
   --foldseek-bin "$CONDA_PREFIX/bin/foldseek-pipeline" \
@@ -222,14 +228,12 @@ the earlier stages and reconstructs stage 3's sequences in memory.
 Use `dataset-info` to display the parameters recorded when a dataset was generated:
 
 ```bash
-python -m dataset_creation_pipeline dataset-info /path/to/my-experiment/inputs
+abagbench dataset-info /path/to/my-experiment/inputs
 ```
 
 The positional path accepts a dataset directory containing `run_manifest.json`,
 an experiment directory containing `inputs/run_manifest.json`, or the manifest
 file itself. An ambiguous experiment path requires an explicit manifest path.
-After installing the package with `pip install .`, the equivalent entry point is
-`abag-dataset-pipeline dataset-info /path/to/my-experiment/inputs`.
 
 The default output shows the generation parameters: SAbDab source, selection
 filters, CDR rules, structural filtering and clustering thresholds, effective
@@ -257,8 +261,8 @@ Generation length bounds are exclusive; the subset's `max_residues` is inclusive
 | `--verify` | Run the release validator against artifact hashes and target coverage; default: metadata inspection only. |
 
 ```bash
-python -m dataset_creation_pipeline dataset-info /path/to/my-experiment --json
-python -m dataset_creation_pipeline dataset-info /path/to/my-experiment/inputs --verify
+abagbench dataset-info /path/to/my-experiment --json
+abagbench dataset-info /path/to/my-experiment/inputs --verify
 ```
 
 Metadata inspection requires Python 3.12+ and the source checkout or installed
@@ -285,7 +289,7 @@ Select individual **complex IDs**, rather than PDB IDs; a PDB entry may contain
 several complexes:
 
 ```bash
-python -m dataset_creation_pipeline subset \
+abagbench subset \
   --source-release /path/to/full-experiment/inputs \
   --output /path/to/smoke-test-experiment \
   --ids 1abc_HA 2def_HLA
@@ -294,7 +298,7 @@ python -m dataset_creation_pipeline subset \
 Or sample five nanobody complexes with at most 800 total residues:
 
 ```bash
-python -m dataset_creation_pipeline subset \
+abagbench subset \
   --source-release /path/to/full-experiment/inputs \
   --output /path/to/smoke-test-experiment \
   --complex-type nanobody --max-residues 800 \

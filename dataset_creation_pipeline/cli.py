@@ -98,7 +98,7 @@ def _resolved_config(args: argparse.Namespace) -> PipelineConfig:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m dataset_creation_pipeline",
+        prog="abagbench",
         description="Construct the antibody–antigen benchmark. Filter or device changes create a different dataset definition; FoldSeek scoring and clustering parameters are fixed.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)

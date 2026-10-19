@@ -23,6 +23,7 @@ dependencies = [
 test = ["pytest==9.1.1"]
 
 [project.scripts]
+abagbench = "dataset_creation_pipeline.cli:main"
 abag-dataset-pipeline = "dataset_creation_pipeline.cli:main"
 
 [tool.setuptools.packages.find]
