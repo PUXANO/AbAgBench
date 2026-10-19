@@ -169,8 +169,8 @@ def dataset_info(dataset: Path, *, verify: bool = False) -> dict[str, Any]:
 
 
 def format_info(report: dict) -> str:
-    """Format saved configuration with bounds/units and explicit missing values."""
-    lines = ["AbAgBench dataset info"]
+    """Show generation parameters only; detailed provenance stays in JSON."""
+    lines = ["Dataset generation parameters"]
 
     def value_text(value: Any) -> str:
         if value is None or value == {}:
@@ -182,41 +182,41 @@ def format_info(report: dict) -> str:
     def row(label: str, value: Any) -> None:
         lines.append(f"  {label}: {value_text(value)}")
 
-    def section(title: str, values: Any) -> None:
-        lines.append(f"\n{title}")
-        if isinstance(values, dict) and values:
-            for key, value in values.items():
-                if isinstance(value, dict) and value:
-                    section(f"{title}.{key}", value)
-                else:
-                    row(key, value)
-        else:
-            row("value", values)
-
-    for key in ("manifest", "manifest_sha256", "release_kind", "run_name", "status",
-                "started_at", "completed_at", "created_at", "canonical", "complexes_recorded"):
-        row(key, report[key])
-    row("artifact verification", "passed" if report["verification"]["status"] == "passed" else "not requested")
-    if report["source_manifest"]:
-        row("source_manifest", report["source_manifest"])
-        section("Subset export criteria (max_residues is inclusive)", report["subset_selection"])
-        row("selected_targets", report["selected_targets"])
-        section("Subset export software", report["subset_export_software"])
     generation = report["generation"]
-    section("Generation summary", {key: generation[key] for key in (
-        "manifest_sha256", "run_name", "status", "canonical", "effective_representative_rule",
-        "cdr_coverage_rule", "cdr_numbering_eligibility")})
     config = generation["resolved_config"]
+    row("SAbDab source", config.get("input", {}).get("sabdab_dir"))
     units = {"resolution_min": " (Å, inclusive)", "resolution_max": " (Å, exclusive)",
              "xray_r_factor_max": " (exclusive)", "min_residues": " (exclusive)",
-             "max_residues": " (exclusive)"}
-    for name in ("input", "selection", "cdr", "foldseek", "resources", "output"):
-        values = config.get(name)
-        if name == "selection" and isinstance(values, dict):
-            values = {key + units.get(key, ""): value for key, value in values.items()}
-        section(f"Recorded configuration: {name}", values)
-    for name in sorted(config.keys() - {"input", "selection", "cdr", "foldseek", "resources", "output"}):
-        section(f"Recorded configuration: {name}", config[name])
-    for key in ("input_snapshot", "input_fingerprint", "config_fingerprint", "software", "execution"):
-        section(key, generation[key])
+             "max_residues": " (exclusive)", "interface_distance_angstrom": " (Å)"}
+    for name, title in (("selection", "Selection"), ("cdr", "CDR"),
+                        ("foldseek", "Structural filtering and clustering")):
+        lines.append(title)
+        values = config.get(name, {})
+        for key, value in values.items():
+            # Show the effective rule once, rather than its default tie-break.
+            if name == "foldseek" and key in {"representative_rule", "foldseek_format"}:
+                continue
+            row(key + units.get(key, ""), value)
+        if not values:
+            row("settings", None)
+        if name == "cdr":
+            row("CDR coverage", generation["cdr_coverage_rule"])
+            eligibility = generation["cdr_numbering_eligibility"]
+            row("CDR-H3 eligibility", {key: eligibility[key] for key in (
+                "max_cdrh3_length", "length_scheme", "length_range") if key in eligibility}
+                if isinstance(eligibility, dict) else None)
+        elif name == "foldseek":
+            row("representative_rule", generation["effective_representative_rule"])
+    resources = config.get("resources", {})
+    row("device", resources.get("device"))
+    row("workers / Foldseek threads", f"{value_text(resources.get('workers'))} / "
+        f"{value_text(resources.get('foldseek_threads'))}")
+    if report["source_manifest"]:
+        lines.append("Subset export criteria (max_residues is inclusive)")
+        for key, value in report["subset_selection"].items():
+            if key == "ids" and isinstance(value, list) and len(value) > 10:
+                value = f"{len(value)} IDs (use --json for the list)"
+            row(key, "not set" if value is None else value)
+    if report["verification"]["status"] == "passed":
+        row("artifact verification", "passed")
     return "\n".join(lines)

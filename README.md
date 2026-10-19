@@ -231,25 +231,29 @@ file itself. An ambiguous experiment path requires an explicit manifest path.
 After installing the package with `pip install .`, the equivalent entry point is
 `abag-dataset-pipeline dataset-info /path/to/my-experiment/inputs`.
 
-The summary includes the recorded dataset size, completion and canonical status,
-manifest SHA-256, source snapshot, selection filters, CDR settings, Foldseek
-protocol, resources and software versions. Resolution and whole-complex length
-bounds are labelled with their inclusivity. The effective representative rule
-combines `smallest_repr` with the configured quality tie-break, and is checked
-against the stage-6 rule when both are recorded. Fixed CDR rules recorded by stage
-4 are also displayed. The report reads saved metadata; missing information is
-shown as `not recorded` or absent/null in JSON. Current configuration defaults
-are never substituted.
+The default output shows the generation parameters: SAbDab source, selection
+filters, CDR rules, structural filtering and clustering thresholds, effective
+representative selection, device and worker settings. Resolution and whole-complex
+length bounds are labelled with their inclusivity. The effective representative
+rule combines `smallest_repr` with the configured quality tie-break and is checked
+against the stage-6 rule when both are recorded. Missing information is shown as
+`not recorded`; current configuration defaults are never substituted.
+
+Use `--json` for detailed provenance, including manifest hashes, timestamps,
+recorded completion status and dataset size, software versions and the full
+source-file inventory.
 
 For subsets, the report shows source-generation settings from the retained,
 hash-checked `provenance/source/run_manifest.json`, alongside separate subset
-export criteria and software. The original source directory is not needed.
+export criteria. Lists of more than ten explicitly requested IDs are summarized
+by count in terminal output; `--json` retains the complete list and export software.
+The original source directory is not needed.
 Generation length bounds are exclusive; the subset's `max_residues` is inclusive.
 
 | Option | Behaviour |
 | --- | --- |
 | `DATASET` | Required dataset directory, experiment directory, or manifest path. |
-| `--json` | Emit the report as JSON; default: readable terminal output. |
+| `--json` | Emit parameters and detailed provenance as JSON; default: a compact parameter summary. |
 | `--verify` | Run the release validator against artifact hashes and target coverage; default: metadata inspection only. |
 
 ```bash
@@ -259,10 +263,12 @@ python -m dataset_creation_pipeline dataset-info /path/to/my-experiment/inputs -
 
 Metadata inspection requires Python 3.12+ and the source checkout or installed
 package. It uses only the standard library and performs no GPU, Foldseek or SAbDab
-preflight checks. Incomplete and failed runs can be inspected. `--verify` requires
-a completed canonical full release or a completed subset and checks the release
-files with the existing validator, including subset/source consistency. Verification
-success is reported separately from recorded completion status; errors return a
+preflight checks. If Python is provided by an environment, activate that environment
+or invoke its Python 3.12+ executable directly. Incomplete and failed runs can be
+inspected. `--verify` requires a completed canonical full release or a completed
+subset and checks the release files with the existing validator, including
+subset/source consistency. Successful verification adds a confirmation line;
+errors return a
 nonzero exit code. Both modes are read-only.
 
 ## Export a subset

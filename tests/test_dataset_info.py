@@ -62,8 +62,8 @@ def test_full_info_uses_saved_settings_and_leaves_dataset_unchanged(tmp_path, mo
     text = format_info(report)
     assert "max_residues (exclusive): 3500" in text
     assert "resolution_max (Å, exclusive): 3.5" in text
-    assert "Recorded configuration: cdr\n  value: not recorded" in text
-    assert "artifact verification: not requested" in text
+    assert "CDR\n  settings: not recorded" in text
+    assert "artifact verification" not in text
     assert {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob("*") if p.is_file()} == before
 
 
@@ -175,3 +175,26 @@ def test_cli_needs_only_standard_library_and_uses_no_preflight(tmp_path):
                              "dataset-info", str(tmp_path), "--json"], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)["status"] == "failed"
+
+
+def test_default_output_shows_only_parameters_while_json_keeps_provenance(tmp_path, capsys):
+    files = [{"path": f"structures/source_{i}.cif", "sha256": "a" * 64} for i in range(11664)]
+    snapshot = {"structures": {"file_count": len(files), "sha256": "b" * 64, "files": files}}
+    root = make_release(tmp_path / "inputs")
+    manifest = record_settings(root)
+    manifest.update({"input_snapshot": snapshot, "started_at": "2026-10-14T02:31:54Z"})
+    manifest["resolved_config"]["output"] = {"data_dir": "irrelevant-output-path"}
+    manifest["resolved_config"]["foldseek"]["foldseek_format"] = "query,target,interfacelddt"
+    (root / "run_manifest.json").write_text(json.dumps(manifest))
+    assert cli.main(["dataset-info", str(root)]) == 0
+    text = capsys.readouterr().out
+    assert "max_residues (exclusive): 3500" in text
+    assert "cutoff_date: 2021-09-30" in text
+    assert "representative_rule: whole-complex residue count, resolution, R-factor, complex ID" in text
+    for detail in ("structures/source_", "manifest", "sha256", "input_snapshot", "files:",
+                   "started_at", "software", "recorded-build", "irrelevant-output-path", "foldseek_format"):
+        assert detail not in text
+    assert len(text.splitlines()) < 40
+    assert cli.main(["dataset-info", str(root), "--json"]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["generation"]["input_snapshot"] == snapshot
