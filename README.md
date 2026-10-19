@@ -92,8 +92,7 @@ and builds the required Foldseek commit as `$CONDA_PREFIX/bin/foldseek-pipeline`
 Activate the environment to make `abagbench` available on `PATH`. After pulling
 changes to command entry points, rerun the `pip install` command above.
 
-For a source checkout, `python -m dataset_creation_pipeline COMMAND` also invokes
-the CLI. The `abag-dataset-pipeline` command is an alias for `abagbench`.
+The `abag-dataset-pipeline` command is an alias for `abagbench`.
 
 For Windows, run the commands above in Ubuntu under WSL2. If the checkout is on the
 Windows filesystem, the Foldseek build may instead be launched from PowerShell:
@@ -189,8 +188,7 @@ abagbench run \
   --smallest_repr
 ```
 
-For TOML profiles, set `smallest_repr = true` under `[selection]`. The option also
-works when running `python -m dataset_creation_pipeline.stages.clustering` directly.
+For TOML profiles, set `smallest_repr = true` under `[selection]`.
 The resolved selection flag and effective stage-6 rule are recorded in the run manifest.
 
 ## Resume
