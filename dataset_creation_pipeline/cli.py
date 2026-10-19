@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from .config import DEFAULT_CONFIG, PipelineConfig, load_config
-from .preflight import run_preflight
 
 
 def _common_options(parser: argparse.ArgumentParser) -> None:
@@ -103,6 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Construct the antibody–antigen benchmark. Filter or device changes create a different dataset definition; FoldSeek scoring and clustering parameters are fixed.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+    info = subparsers.add_parser("dataset-info", help="Show recorded dataset-generation settings without running the pipeline.")
+    info.add_argument("dataset", type=Path, help="Dataset directory (normally inputs/), experiment directory, or run_manifest.json.")
+    info.add_argument("--json", dest="json_output", action="store_true", help="Print machine-readable JSON instead of a readable summary.")
+    info.add_argument("--verify", action="store_true", help="Verify release artifact hashes and target coverage with the full/subset release validator.")
     validate_parser = subparsers.add_parser("validate", help="Validate SAbDab2 input, dependencies, FoldSeek options, disk, and output permissions without writing artifacts.")
     _common_options(validate_parser)
     run_parser = subparsers.add_parser("run", help="Run the pipeline locally or resume a fingerprint-matched run.")
@@ -131,6 +134,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "dataset-info":
+            from .dataset_info import dataset_info, format_info
+
+            report = dataset_info(args.dataset, verify=args.verify)
+            print(json.dumps(report, indent=2) if args.json_output else format_info(report))
+            return 0
         if args.command == "subset":
             from .subset import export_subset
 
@@ -142,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
                 count=args.count, seed=args.seed)
             print(json.dumps(result, indent=2))
             return 0
+        from .preflight import run_preflight
+
         config = _resolved_config(args)
         if args.command == "run" and args.dry_run and (args.force or args.resume):
             raise ValueError("--dry-run cannot be combined with --force or --resume")

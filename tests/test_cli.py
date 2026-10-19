@@ -308,7 +308,7 @@ def test_main_dispatches_validate_with_resolved_flags(monkeypatch, tmp_path, cap
         captured["require_foldseek"] = require_foldseek
         return {"ok": True}
 
-    monkeypatch.setattr(cli, "run_preflight", fake_preflight)
+    monkeypatch.setattr("dataset_creation_pipeline.preflight.run_preflight", fake_preflight)
     result = cli.main(
         [
             "validate",

@@ -4,7 +4,8 @@ AbAgBench is a reproducible pipeline for building nonredundant SAbDab2 datasets 
 benchmark antibody–protein antigen complex structure prediction. The repository contains
 code and synthetic test fixtures only; it does not distribute SAbDab2 or generated
 datasets. It also exports validated subsets of completed canonical releases for
-smoke tests and selected-complex experiments.
+smoke tests and selected-complex experiments, and displays the settings recorded
+for full datasets and subsets with `dataset-info`.
 
 ## Citation
 
@@ -216,6 +217,54 @@ Counts and the eligibility rule are saved in stage-4 metrics and the run manifes
 the exclusion TSV is a required, hashed stage output. Resuming from stage 4 verifies
 the earlier stages and reconstructs stage 3's sequences in memory.
 
+## Inspect dataset settings
+
+Use `dataset-info` to display the parameters recorded when a dataset was generated:
+
+```bash
+python -m dataset_creation_pipeline dataset-info /path/to/my-experiment/inputs
+```
+
+The positional path accepts a dataset directory containing `run_manifest.json`,
+an experiment directory containing `inputs/run_manifest.json`, or the manifest
+file itself. An ambiguous experiment path requires an explicit manifest path.
+After installing the package with `pip install .`, the equivalent entry point is
+`abag-dataset-pipeline dataset-info /path/to/my-experiment/inputs`.
+
+The summary includes the recorded dataset size, completion and canonical status,
+manifest SHA-256, source snapshot, selection filters, CDR settings, Foldseek
+protocol, resources and software versions. Resolution and whole-complex length
+bounds are labelled with their inclusivity. The effective representative rule
+combines `smallest_repr` with the configured quality tie-break, and is checked
+against the stage-6 rule when both are recorded. Fixed CDR rules recorded by stage
+4 are also displayed. The report reads saved metadata; missing information is
+shown as `not recorded` or absent/null in JSON. Current configuration defaults
+are never substituted.
+
+For subsets, the report shows source-generation settings from the retained,
+hash-checked `provenance/source/run_manifest.json`, alongside separate subset
+export criteria and software. The original source directory is not needed.
+Generation length bounds are exclusive; the subset's `max_residues` is inclusive.
+
+| Option | Behaviour |
+| --- | --- |
+| `DATASET` | Required dataset directory, experiment directory, or manifest path. |
+| `--json` | Emit the report as JSON; default: readable terminal output. |
+| `--verify` | Run the release validator against artifact hashes and target coverage; default: metadata inspection only. |
+
+```bash
+python -m dataset_creation_pipeline dataset-info /path/to/my-experiment --json
+python -m dataset_creation_pipeline dataset-info /path/to/my-experiment/inputs --verify
+```
+
+Metadata inspection requires Python 3.12+ and the source checkout or installed
+package. It uses only the standard library and performs no GPU, Foldseek or SAbDab
+preflight checks. Incomplete and failed runs can be inspected. `--verify` requires
+a completed canonical full release or a completed subset and checks the release
+files with the existing validator, including subset/source consistency. Verification
+success is reported separately from recorded completion status; errors return a
+nonzero exit code. Both modes are read-only.
+
 ## Export a subset
 
 `subset` selects survivors from an existing completed canonical GPU release and
@@ -291,10 +340,11 @@ The subset can be validated after the original release has been moved or removed
 The source is never edited and the output is published only after validation.
 Source clustering diagnostics, intermediate files and plots are not copied.
 
-For universal_runner, point `OPENDDE_DATASET_RELEASE_DIR` at the experiment’s `inputs/`,
-set `DATASET_RELEASE_KIND=subset`, and set `OPENDDE_DATASET_MANIFEST_SHA256` to the
-new `inputs/run_manifest.json` hash. A five-complex export declares five targets for input
-preparation, prediction and evaluation.
+For universal_runner, place `run.env` in the destination experiment. The runner
+uses its `inputs/` by default, reads the subset type from the manifest and records
+the manifest hash automatically. Use `DATASET_DIR` only to select another dataset
+location. A five-complex export declares five targets for input preparation,
+prediction and evaluation.
 
 ## Experiment layout
 
@@ -333,10 +383,10 @@ configuration, canonical status, input/output hashes, software versions and
 per-stage timing and memory. Dataset artifact paths are relative to `inputs/`;
 working-artifact and plot records refer to `../outputs/abagbench/`.
 
-Create the experiment's `run.env` from universal_runner's template and set
-`OPENDDE_DATASET_RELEASE_DIR="$EXPERIMENT_DIR/inputs"`. Select `full` or `subset`
-with `DATASET_RELEASE_KIND` and record the SHA-256 of `inputs/run_manifest.json`.
-The runner creates its preparation and inference directories under `outputs/`.
+Create the experiment's `run.env` from universal_runner's template. The runner
+uses the adjacent `inputs/` by default and derives the full/subset type and
+manifest hash from `inputs/run_manifest.json`; `DATASET_DIR` overrides the dataset
+location. The runner creates its preparation and inference directories under `outputs/`.
 AbAgBench does not create `run.env` or choose model settings, inference resources
 or prediction scratch storage.
 
