@@ -500,12 +500,12 @@ def write_chain_subset_cif(src_path: Path, dst_path: Path, auth_chains: set[str]
 # Single source of truth so plots.py can never drift from the filter again.
 
 def make_abag_mask(df: pd.DataFrame) -> pd.Series:
-    """Antibody-antigen selection mask (H chain, single protein antigen)."""
+    """Select one SAbDab-listed protein antigen chain per antibody candidate."""
     mask_has_H = df["Hchain"].notna()
     mask_has_antigen = df["antigen_chain"].notna()
-    mask_multimeric = df["antigen_chain"].str.contains("|", regex=False, na=False)
+    mask_multiple_listed_chains = df["antigen_chain"].str.contains("|", regex=False, na=False)
     mask_protein = df["antigen_type"].str.contains("protein", case=False, na=False)
-    return mask_has_H & mask_has_antigen & ~mask_multimeric & mask_protein
+    return mask_has_H & mask_has_antigen & ~mask_multiple_listed_chains & mask_protein
 
 
 # Excluded engineered chain-sharing constructs in SAbDab2.

@@ -140,7 +140,7 @@ def test_failed_staged_export_cleans_up(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == ["source"]
 
 
-def test_multimeric_antigen_mapping_is_rejected_before_export(tmp_path):
+def test_multiple_listed_antigen_chains_are_rejected_before_export(tmp_path):
     source = make_release(tmp_path / "source")
     path = source / "benchmark/registry.tsv"
     fields, rows = read_table(path, "\t")

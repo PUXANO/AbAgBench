@@ -2,7 +2,7 @@
 """Filter SAbDab2 antibody–protein antigen complexes.
 
 - Exclude pre-cutoff structures, engineered constructs, VNARs, and membrane proteins.
-- Require a heavy chain and one protein antigen; light chains are optional.
+- Require a heavy chain and one SAbDab-listed protein antigen chain; light chains are optional.
 - Require X-ray or EM structures with 1.0 <= resolution < 3.5 Å.
 - Require X-ray R-factor < 0.3 and available, eligible mmCIF records.
 - Deduplicate entity-equivalent complexes by resolved residue count.
@@ -107,12 +107,12 @@ def apply_training_deleak(
 
 
 def apply_abag_mask(df: pd.DataFrame, metrics: StageMetrics) -> pd.DataFrame:
-    """Keep complexes with a heavy chain and a single protein antigen."""
+    """Keep candidates annotated by SAbDab with one protein antigen chain."""
     n = len(df)
     reasons = {
         "no H chain": int(df["Hchain"].isna().sum()),
         "no antigen chain": int(df["antigen_chain"].isna().sum()),
-        "multimeric antigen": int(
+        "multiple SAbDab-listed antigen chains": int(
             df["antigen_chain"].fillna("").str.contains("|", regex=False).sum()
         ),
         "non-protein antigen": int(
@@ -121,7 +121,7 @@ def apply_abag_mask(df: pd.DataFrame, metrics: StageMetrics) -> pd.DataFrame:
     }
     mask = make_abag_mask(df)
     kept = df[mask]
-    metrics.add("H chain + single protein antigen", n, len(kept), reasons=reasons)
+    metrics.add("H chain + one SAbDab-listed protein antigen chain", n, len(kept), reasons=reasons)
     return kept
 
 
@@ -242,8 +242,10 @@ def apply_strict_cif_eligibility(
 def apply_entity_copy_dedup(
     df: pd.DataFrame, metrics: StageMetrics
 ) -> pd.DataFrame:
-    """Keep one complex per PDB and heavy/light/antigen entity combination.
+    """Keep one candidate per PDB and heavy/light/antigen entity combination.
 
+    Equivalent copies can be biological or crystallographic; entity identity
+    alone does not distinguish their biological role or binding geometry.
     - Prefer the copy with the most resolved residues.
     - Break ties by registry row order.
     """

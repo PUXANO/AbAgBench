@@ -28,6 +28,20 @@ If you use this pipeline, please cite:
 | 6 | `clustering` | Cluster by structural similarity and select representatives. |
 | 7 | `feature-assembly` | Export the final dataset, features, and plots. |
 
+Targets retain the full antibody–antigen interface **as annotated by SAbDab**.
+Stage 2 keeps candidates with one listed protein antigen chain and excludes
+candidates annotated with multiple antigen chains (`antigen_chain` containing
+`|`). Stage 4 extracts the listed heavy chain, optional light chain and antigen
+chain into a target mmCIF. A larger source structure can supply several targets.
+An antigen chain can belong to a multimeric antigen: its other partners are
+omitted when SAbDab does not list them as antigen chains for that antibody.
+
+Within each source PDB entry, entity-copy deduplication retains the candidate
+with the most resolved residues for each heavy/light/antigen entity combination,
+breaking ties by summary row order. This selects among entity-equivalent copies
+regardless of whether their origin is biological or crystallographic. Subsequent
+structural de-leaking and clustering select a nonredundant interface dataset.
+
 ## Defaults
 
 | Setting | Default |
