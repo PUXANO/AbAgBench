@@ -8,6 +8,7 @@ import pytest
 
 from dataset_creation_pipeline import cli
 from dataset_creation_pipeline.dataset_info import dataset_info, format_info
+from dataset_creation_pipeline.dataset_summary import summarize_dataset
 from dataset_creation_pipeline.subset import export_subset
 from subset_support import make_release
 
@@ -54,6 +55,12 @@ def test_full_info_uses_saved_settings_and_leaves_dataset_unchanged(tmp_path, mo
     generation = report["generation"]
     assert report["complexes_recorded"] == 6
     assert report["verification"] == {"status": "not_requested"}
+    assert report["dataset_summary"] == {
+        "complexes": 6,
+        "residue_length": {"min": 3, "max": 10,
+                           "min_targets": ["1abc_HA"], "max_targets": ["6abc_HLA"]},
+    }
+    assert report["dataset_summary_source"] == "dataset_files"
     assert report["manifest_sha256"] == hashlib.sha256((root / "run_manifest.json").read_bytes()).hexdigest()
     assert generation["resolved_config"]["selection"]["max_residues"] == 3500
     assert generation["effective_representative_rule"].startswith("whole-complex residue count,")
@@ -62,6 +69,8 @@ def test_full_info_uses_saved_settings_and_leaves_dataset_unchanged(tmp_path, mo
     text = format_info(report)
     assert "max_residues (exclusive): 3500" in text
     assert "resolution_max (Å, exclusive): 3.5" in text
+    assert "complexes: 6" in text
+    assert "whole-complex AA range (observed, inclusive): 3–10" in text
     assert "CDR\n  settings: not recorded" in text
     assert "artifact verification" not in text
     assert {str(p): (p.read_bytes(), p.stat().st_mtime_ns) for p in root.rglob("*") if p.is_file()} == before
@@ -83,6 +92,9 @@ def test_subset_info_reads_retained_source_after_original_is_removed(tmp_path):
     assert report["subset_selection"]["max_residues"] == 7
     assert report["subset_selection"]["seed"] == 17
     assert report["subset_export_software"]["abagbench"]
+    assert report["dataset_summary_source"] == "manifest"
+    assert report["dataset_summary"]["complexes"] == 2
+    assert report["dataset_summary"]["residue_length"]["max"] <= 7
     assert "Subset export criteria (max_residues is inclusive)" in format_info(report)
     parent = output / "inputs/provenance/source/run_manifest.json"
     parent.write_text(parent.read_text() + "\n")
@@ -177,7 +189,59 @@ def test_cli_needs_only_standard_library_and_uses_no_preflight(tmp_path):
     assert json.loads(result.stdout)["status"] == "failed"
 
 
-def test_default_output_shows_only_parameters_while_json_keeps_provenance(tmp_path, capsys):
+def test_recorded_summary_supports_manifest_only_inspection_and_verifies_contents(tmp_path):
+    root = make_release(tmp_path / "inputs")
+    manifest = record_settings(root)
+    manifest["dataset_summary"] = summarize_dataset(root)
+    path = root / "run_manifest.json"
+    path.write_text(json.dumps(manifest))
+    assert dataset_info(root, verify=True)["dataset_summary_source"] == "manifest"
+    # Well-formed but stale bounds must fail artifact verification.
+    manifest["dataset_summary"]["residue_length"]["max"] = 9
+    path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="summary differs from verified artifacts"):
+        dataset_info(root, verify=True)
+    (root / "benchmark").rename(tmp_path / "saved-benchmark")
+    assert dataset_info(root)["dataset_summary"]["residue_length"]["max"] == 9
+    del manifest["dataset_summary"]
+    path.write_text(json.dumps(manifest))
+    assert dataset_info(root)["dataset_summary"] is None
+    assert "observed, inclusive): not recorded" in format_info(dataset_info(root))
+
+
+@pytest.mark.parametrize("value", [0, True, 1.5, "10", None])
+def test_malformed_recorded_bounds_fail(tmp_path, value):
+    root = make_release(tmp_path / "inputs")
+    manifest = record_settings(root)
+    manifest["dataset_summary"] = summarize_dataset(root)
+    manifest["dataset_summary"]["residue_length"]["max"] = value
+    (root / "run_manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="residue bounds must be positive integers"):
+        dataset_info(root)
+
+
+@pytest.mark.parametrize("value", ["0", "nan", "inf", "3.5", "", "4"])
+def test_legacy_summary_rejects_invalid_or_inconsistent_feature_lengths(tmp_path, value):
+    root = make_release(tmp_path / "inputs")
+    path = root / "benchmark/dataset_features.csv"
+    path.write_text(path.read_text().replace("True,3,1", f"True,{value},1"))
+    with pytest.raises(ValueError, match="residue_length"):
+        dataset_info(root)
+
+
+def test_observed_bounds_retain_all_tied_targets(tmp_path):
+    root = make_release(tmp_path / "inputs")
+    feature = root / "benchmark/dataset_features.csv"
+    feature.write_text(feature.read_text().replace("3abc_HA,3abc,X-ray,True,5,1",
+                                                "3abc_HA,3abc,X-ray,True,3,1"))
+    fasta = root / "benchmark/benchmark.fasta"
+    fasta.write_text(fasta.read_text().replace(">3abc_HA_A|protein\nGGG\n", ">3abc_HA_A|protein\nG\n"))
+    report = dataset_info(root)
+    assert report["dataset_summary"]["residue_length"]["min_targets"] == ["1abc_HA", "3abc_HA"]
+    assert "smallest: 1abc_HA, 3abc_HA" in format_info(report)
+
+
+def test_default_output_shows_parameters_and_contents_while_json_keeps_provenance(tmp_path, capsys):
     files = [{"path": f"structures/source_{i}.cif", "sha256": "a" * 64} for i in range(11664)]
     snapshot = {"structures": {"file_count": len(files), "sha256": "b" * 64, "files": files}}
     root = make_release(tmp_path / "inputs")

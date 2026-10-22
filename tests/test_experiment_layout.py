@@ -32,6 +32,11 @@ def test_full_pipeline_routes_dataset_and_results_and_resumes(tmp_path):
     manifest = json.loads((experiment / "inputs/run_manifest.json").read_text())
     assert (experiment / "inputs" / manifest["run_log"]).is_file()
     assert manifest["status"] == "completed"
+    assert manifest["dataset_summary"] == {
+        "complexes": 1,
+        "residue_length": {"min": 4, "max": 4,
+                           "min_targets": ["2def_XY"], "max_targets": ["2def_XY"]},
+    }
     # The database remains external to the experiment and is independently reusable.
     assert (tmp_path / "sabdab2/sabdab_summary_all.csv").is_file()
     subset = tmp_path / "smoke-test"

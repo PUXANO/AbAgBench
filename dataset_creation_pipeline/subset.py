@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 
 from . import __version__
+from .dataset_summary import summarize_dataset
 from .release import (
     ARTIFACTS, SOURCE_FILES, _hash_directory, _sha256, read_fasta, read_table,
     select_targets, validate_release,
@@ -82,6 +83,7 @@ def export_subset(source: Path, output: Path, *, ids: list[str] | None = None,
             "source": {"manifest_sha256": summary["manifest_sha256"],
                        "selected_native_sha256": native_hashes},
             "selection": criteria, "selected_targets": selected,
+            "dataset_summary": summarize_dataset(dataset),
             "subset_export": {"status": "completed", "outputs": [
                 artifact_record(dataset, p) for p in ARTIFACTS]},
         }

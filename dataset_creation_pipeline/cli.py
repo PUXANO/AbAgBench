@@ -102,10 +102,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Construct the antibody–antigen benchmark. Filter or device changes create a different dataset definition; FoldSeek scoring and clustering parameters are fixed.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    info = subparsers.add_parser("dataset-info", help="Show recorded dataset-generation settings without running the pipeline.")
+    info = subparsers.add_parser("dataset-info", help="Show recorded generation settings and observed dataset contents without running the pipeline.")
     info.add_argument("dataset", type=Path, help="Dataset directory (normally inputs/), experiment directory, or run_manifest.json.")
     info.add_argument("--json", dest="json_output", action="store_true", help="Print machine-readable JSON instead of a readable summary.")
-    info.add_argument("--verify", action="store_true", help="Verify release artifact hashes and target coverage with the full/subset release validator.")
+    info.add_argument("--verify", action="store_true", help="Verify release artifact hashes, target coverage and observed size statistics.")
     validate_parser = subparsers.add_parser("validate", help="Validate SAbDab2 input, dependencies, FoldSeek options, disk, and output permissions without writing artifacts.")
     _common_options(validate_parser)
     run_parser = subparsers.add_parser("run", help="Run the pipeline locally or resume a fingerprint-matched run.")
@@ -127,6 +127,21 @@ def build_parser() -> argparse.ArgumentParser:
     subset.add_argument("--max-residues", type=int, help="Inclusive maximum whole-complex residue count.")
     subset.add_argument("--count", type=int, help="Randomly sample this many qualifying complexes; requires --seed.")
     subset.add_argument("--seed", type=int, help="Explicit nonnegative random seed; requires --count.")
+    capacity = subparsers.add_parser("max-size-test", help="Export machine-capacity test inputs directly from a SAbDab snapshot.")
+    capacity.add_argument("--sabdab-dir", type=Path, required=True)
+    capacity.add_argument("--summary-file", default="sabdab_summary_all.csv")
+    capacity.add_argument("--structures-dir", default="sabdab_all_structures")
+    capacity.add_argument("--output", type=Path, required=True, help="Destination experiment folder with absent or empty inputs/ and outputs/.")
+    capacity.add_argument("--min-residues", type=int, help="Inclusive minimum full-sequence whole-complex AA count.")
+    capacity.add_argument("--max-residues", type=int, help="Inclusive maximum full-sequence whole-complex AA count.")
+    bins = capacity.add_mutually_exclusive_group()
+    bins.add_argument("--bin-width", type=int, help="Positive bin width; requires --min-residues and --max-residues.")
+    bins.add_argument("--bins", nargs="+", type=int, help="Explicit increasing bin edges; final upper edge is inclusive.")
+    capacity.add_argument("--per-bin", type=int, help="Exactly this many complexes per bin (default: 1 with bins).")
+    identifiers = capacity.add_mutually_exclusive_group()
+    identifiers.add_argument("--pdb-ids", nargs="+", help="PDB IDs, each resolving to exactly one eligible complex.")
+    identifiers.add_argument("--complex-ids", nargs="+", help="Exact complex IDs, including chain suffixes.")
+    capacity.add_argument("--dry-run", action="store_true", help="Report selected targets and input exclusions without writing files.")
     return parser
 
 
@@ -139,6 +154,16 @@ def main(argv: list[str] | None = None) -> int:
 
             report = dataset_info(args.dataset, verify=args.verify)
             print(json.dumps(report, indent=2) if args.json_output else format_info(report))
+            return 0
+        if args.command == "max-size-test":
+            from .max_size_test import export_max_size_test, selection_criteria
+
+            criteria = selection_criteria(minimum=args.min_residues, maximum=args.max_residues,
+                bin_width=args.bin_width, bin_edges=args.bins, per_bin=args.per_bin,
+                pdb_ids=args.pdb_ids, complex_ids=args.complex_ids)
+            result = export_max_size_test(args.sabdab_dir, args.output, criteria=criteria,
+                summary_file=args.summary_file, structures_dir=args.structures_dir, dry_run=args.dry_run)
+            print(json.dumps(result, indent=2))
             return 0
         if args.command == "subset":
             from .subset import export_subset

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate full and subset AbAgBench releases using only the standard library.
+"""Validate full, subset and max-size-test releases using the standard library.
 
 The portable release-v1 validator is also distributed by universal_runner; neither
 repository imports the other at runtime.
@@ -30,6 +30,19 @@ def _sha256(path: Path) -> str:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _read_json(path: Path) -> dict:
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"Duplicate JSON field: {key}")
+            result[key] = value
+        return result
+    def invalid(value):
+        raise ValueError(f"Invalid JSON constant: {value}")
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique, parse_constant=invalid)
 
 
 def _hash_directory(path: Path) -> tuple[str, int, int]:
@@ -136,6 +149,10 @@ def _require_equal_sets(label: str, expected: Iterable[str], observed: Iterable[
 
 ARTIFACTS = (*REQUIRED_FILES, "benchmark/structures")
 SOURCE_FILES = ("run_manifest.json", *REQUIRED_FILES)
+RELEASE_KINDS = ("full", "subset", "max-size-test")
+CAPACITY_ARTIFACTS = (*ARTIFACTS, "provenance/candidates.json", "provenance/source_summary.csv")
+CAPACITY_REGISTRY_FIELDS = ("complex_id", "pdb", "Hchain", "Lchain", "antigen_chain", "residue_length")
+CAPACITY_FEATURE_FIELDS = ("complex_id", "pdb_id", "is_nanobody", "residue_length")
 
 
 def full_records(manifest: dict) -> list[dict]:
@@ -252,7 +269,7 @@ def subset_records(release_dir: Path, manifest: dict) -> list[dict]:
             or manifest.get("stages")):
         raise ValueError("Invalid completed subset export record")
     outputs = export.get("outputs", [])
-    if (not isinstance(outputs, list) or any(not isinstance(r, dict) for r in outputs)
+    if (not isinstance(outputs, list) or any(not isinstance(r, dict) or not isinstance(r.get("path"), str) for r in outputs)
             or sorted(r.get("path", "") for r in outputs) != sorted(ARTIFACTS)):
         raise ValueError("Subset must declare exactly the required dataset outputs")
     expected_kinds = {p: ("directory" if p.endswith("/structures") else "file") for p in ARTIFACTS}
@@ -303,25 +320,198 @@ def validate_subset_contents(release_dir: Path, manifest: dict, registry_ids: li
         raise ValueError("Subset structures differ from recorded source structure hashes")
 
 
+def validate_capacity_selection(criteria: dict) -> None:
+    """Validate capacity options independently of candidate availability."""
+    if not isinstance(criteria, dict) or set(criteria) != {
+        "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids", "rule"
+    } or criteria["rule"] != "largest_per_bin_then_complex_id":
+        raise ValueError("Invalid max-size-test selection criteria")
+    lower, upper, edges, per_bin, pdbs, ids = (criteria[k] for k in (
+        "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids"))
+    for bound in (lower, upper):
+        if bound is not None and (type(bound) is not int or bound < 1):
+            raise ValueError("Capacity residue bounds must be positive integers")
+    if lower is not None and upper is not None and lower > upper:
+        raise ValueError("Capacity minimum exceeds maximum")
+    for names, pattern, label in ((pdbs, r"[0-9a-z]{4}", "PDB IDs"),
+                                  (ids, r"[0-9a-z]{4}_[0-9A-Za-z]{2,3}", "complex IDs")):
+        if names is not None and (not isinstance(names, list) or not names
+                or any(not isinstance(t, str) or not re.fullmatch(pattern, t) for t in names)
+                or len(set(names)) != len(names)):
+            raise ValueError(f"Capacity {label} must be nonempty, valid and unique")
+    if pdbs is not None and ids is not None:
+        raise ValueError("Choose PDB IDs or complex IDs, not both")
+    if edges is not None:
+        if (not isinstance(edges, list) or len(edges) < 2
+                or any(type(n) is not int or n < 1 for n in edges)
+                or edges != sorted(set(edges)) or lower != edges[0] or upper != edges[-1]
+                or type(per_bin) is not int or per_bin < 1):
+            raise ValueError("Capacity bins require increasing edges, matching bounds and positive per_bin")
+    elif per_bin is not None:
+        raise ValueError("per_bin requires capacity bins")
+    if edges is None and pdbs is None and ids is None:
+        raise ValueError("Specify capacity bins, PDB IDs or complex IDs")
+
+
+def select_capacity_targets(candidates: dict, criteria: dict) -> list[str]:
+    """Replay explicit or binned capacity selection without benchmark filtering."""
+    validate_capacity_selection(criteria)
+    lower, upper, edges, per_bin, pdbs, ids = (criteria[k] for k in (
+        "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids"))
+    lengths = {target: sum(map(len, entry["chains"].values())) for target, entry in candidates.items()}
+    eligible = {t for t, n in lengths.items() if (lower is None or n >= lower) and (upper is None or n <= upper)}
+    if ids is not None:
+        missing = set(ids) - eligible
+        if missing:
+            raise ValueError(f"Requested capacity complexes unavailable or outside bounds: {sorted(missing)}")
+        eligible &= set(ids)
+    if pdbs is not None:
+        chosen = set()
+        for pdb in pdbs:
+            matching = sorted(t for t in eligible if t.split("_", 1)[0] == pdb)
+            if len(matching) != 1:
+                raise ValueError(f"PDB {pdb}: expected one eligible complex, found {matching}; use --complex-ids to disambiguate")
+            chosen.update(matching)
+        eligible = chosen
+    if not eligible:
+        raise ValueError("Capacity selection contains no complexes")
+    if edges is not None:
+        selected, shortages = [], []
+        for index, (lo, hi) in enumerate(zip(edges, edges[1:])):
+            final = index == len(edges) - 2
+            members = sorted((t for t in eligible if lo <= lengths[t] and
+                              (lengths[t] < hi or (final and lengths[t] == hi))),
+                             key=lambda t: (-lengths[t], t))
+            if len(members) < per_bin:
+                shortages.append(f"[{lo}, {hi}{']' if final else ')'}: {len(members)} available, {per_bin} required")
+            selected.extend(members[:per_bin])
+        if shortages:
+            raise ValueError("Insufficient capacity-bin coverage: " + "; ".join(shortages))
+        eligible = set(selected)
+    selected = sorted(eligible)
+    if len({t.lower() for t in selected}) != len(selected):
+        raise ValueError("Selected capacity IDs collide on case-insensitive filesystems")
+    return selected
+
+
+def capacity_records(manifest: dict) -> list[dict]:
+    export = manifest.get("max_size_test_export")
+    if (manifest.get("purpose") != "machine_capacity_test"
+            or not isinstance(manifest.get("execution"), dict)
+            or manifest["execution"].get("canonical") is not False
+            or manifest.get("stages") or manifest.get("subset_export")
+            or not isinstance(export, dict) or export.get("status") != "completed"):
+        raise ValueError("Invalid completed max-size-test export record")
+    outputs = export.get("outputs")
+    if (not isinstance(outputs, list) or any(not isinstance(r, dict) or not isinstance(r.get("path"), str) for r in outputs)
+            or sorted(r.get("path", "") for r in outputs) != sorted(CAPACITY_ARTIFACTS)):
+        raise ValueError("Max-size-test must declare exactly its required outputs")
+    if any(r.get("kind") != ("directory" if r["path"].endswith("/structures") else "file") for r in outputs):
+        raise ValueError("Invalid max-size-test artifact kind")
+    return outputs
+
+
+def validate_capacity_contents(release_dir: Path, manifest: dict) -> None:
+    catalog = _read_json(release_dir / "provenance/candidates.json")
+    if (not isinstance(catalog, dict) or type(catalog.get("schema_version")) is not int
+            or catalog["schema_version"] != 1 or not isinstance(catalog.get("candidates"), list)
+            or not isinstance(catalog.get("excluded"), list)):
+        raise ValueError("Invalid capacity candidate catalog")
+    for entry in catalog["excluded"]:
+        if (not isinstance(entry, dict) or set(entry) != {"summary_row", "pdb_id", "complex_id", "reason"}
+                or type(entry["summary_row"]) is not int or entry["summary_row"] < 2
+                or any(not isinstance(entry[k], str) or not entry[k] for k in ("pdb_id", "complex_id", "reason"))):
+            raise ValueError("Invalid capacity input-exclusion record")
+    with (release_dir / "provenance/source_summary.csv").open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        fields = reader.fieldnames or []
+        if len(fields) != len(set(fields)) or not {"Hchain", "Lchain", "antigen_chain", "antigen_type"} <= set(fields) or not {"pdb", "PDB"} & set(fields):
+            raise ValueError("Invalid capacity source-summary columns")
+        source_mappings = set()
+        for row in reader:
+            if None in row or any(v is None for v in row.values()):
+                raise ValueError("Malformed capacity source-summary row")
+            pdb = re.fullmatch(r"(?:pdb_0000)?([0-9a-z]{4})", row.get("pdb", row.get("PDB", "")).strip().lower())
+            if pdb is None:
+                raise ValueError("Invalid PDB ID in capacity source summary")
+            light = row["Lchain"].strip()
+            light = "" if light.lower() in {"", "nan", "na", "none"} else light
+            if "protein" in row["antigen_type"].lower():
+                source_mappings.add((pdb[1], row["Hchain"].strip(), light, row["antigen_chain"].strip()))
+    candidates, registry, features, source_hashes = {}, {}, {}, {}
+    for entry in catalog["candidates"]:
+        if not isinstance(entry, dict) or set(entry) != {"registry", "chains", "source_cif", "source_cif_sha256"}:
+            raise ValueError("Invalid capacity candidate record")
+        row, chains = entry["registry"], entry["chains"]
+        if (not isinstance(row, dict) or set(row) != set(CAPACITY_REGISTRY_FIELDS)
+                or any(not isinstance(v, str) for v in row.values())
+                or not isinstance(chains, dict) or any(not isinstance(s, str) or not s
+                    or set(s) - set("ACDEFGHIKLMNPQRSTVWY") for s in chains.values())):
+            raise ValueError("Invalid capacity chains or registry row")
+        target = row["complex_id"]
+        if tuple(row[k] for k in ("pdb", "Hchain", "Lchain", "antigen_chain")) not in source_mappings:
+            raise ValueError(f"Capacity candidate differs from source summary: {target}")
+        expected_chains = {row["Hchain"], row["antigen_chain"]} | ({row["Lchain"]} if row["Lchain"] else set())
+        if (target in candidates or set(chains) != expected_chains
+                or row["pdb"] != target.split("_", 1)[0]
+                or row["residue_length"] != str(sum(map(len, chains.values())))):
+            raise ValueError(f"Duplicate or inconsistent capacity candidate: {target}")
+        source = entry["source_cif"]
+        if (not isinstance(source, str) or not source or Path(source).is_absolute() or ".." in Path(source).parts
+                or not isinstance(entry["source_cif_sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", entry["source_cif_sha256"])):
+            raise ValueError(f"Invalid capacity source identity: {target}")
+        if source in source_hashes and source_hashes[source] != entry["source_cif_sha256"]:
+            raise ValueError(f"Conflicting capacity source hashes: {source}")
+        source_hashes[source] = entry["source_cif_sha256"]
+        candidates[target], registry[target] = entry, row
+        features[target] = {"complex_id": target, "pdb_id": row["pdb"],
+                            "is_nanobody": str(not row["Lchain"]), "residue_length": row["residue_length"]}
+    # Reuse chain/ID/type validation without applying benchmark cohort filters.
+    select_targets(registry, features, {"ids": sorted(registry), "complex_type": "all", "max_residues": None,
+                                       "count": None, "seed": None})
+    selected = select_capacity_targets(candidates, manifest.get("selection"))
+    if manifest.get("selected_targets") != selected:
+        raise ValueError("Capacity targets differ from recorded selection")
+    for name, delimiter, expected_fields, expected_rows in (
+        ("registry.tsv", "\t", CAPACITY_REGISTRY_FIELDS, registry),
+        ("dataset_features.csv", ",", CAPACITY_FEATURE_FIELDS, features),
+    ):
+        fields, rows = read_table(release_dir / "benchmark" / name, delimiter)
+        if fields != list(expected_fields) or rows != {t: expected_rows[t] for t in selected}:
+            raise ValueError(f"Capacity {name} differs from selected candidates")
+    if read_fasta(release_dir / "benchmark/benchmark.fasta") != {t: candidates[t]["chains"] for t in selected}:
+        raise ValueError("Capacity FASTA differs from selected candidates")
+    lengths = {t: int(registry[t]["residue_length"]) for t in selected}
+    low, high = min(lengths.values()), max(lengths.values())
+    expected = {"complexes": len(selected), "residue_length": {"min": low, "max": high,
+        "min_targets": sorted(t for t in selected if lengths[t] == low),
+        "max_targets": sorted(t for t in selected if lengths[t] == high)}}
+    if json.dumps(manifest.get("dataset_summary"), sort_keys=True) != json.dumps(expected, sort_keys=True):
+        raise ValueError("Capacity dataset summary differs from selected sequences")
+
+
 def validate_release(release_dir: Path, release_kind: str = "full") -> dict[str, Any]:
     release_dir = release_dir.resolve()
     manifest_path = release_dir / "run_manifest.json"
     if not manifest_path.is_file() or manifest_path.stat().st_size == 0:
         raise FileNotFoundError(f"Missing/empty AbAgBench run manifest: {manifest_path}")
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+    manifest = _read_json(manifest_path)
+    if not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int or manifest["schema_version"] != 1:
         raise ValueError(f"Unsupported AbAgBench manifest schema: {manifest_path}")
     if manifest.get("status") != "completed":
         raise ValueError(f"AbAgBench run is not complete: status={manifest.get('status')!r}")
-    if release_kind not in {"full", "subset"}:
-        raise ValueError("DATASET_RELEASE_KIND must be full or subset")
+    if release_kind not in RELEASE_KINDS:
+        raise ValueError("DATASET_RELEASE_KIND must be full or subset or max-size-test")
     observed_kind = manifest.get("release_kind", "full")
     if observed_kind != release_kind:
         raise ValueError(f"Release kind mismatch: expected {release_kind}, found {observed_kind}")
     if release_kind == "full":
         records = full_records(manifest)
-    else:
+    elif release_kind == "subset":
         records = subset_records(release_dir, manifest)
+    else:
+        records = capacity_records(manifest)
     for record in records:
         _verify_record(release_dir, record)
 
@@ -341,6 +531,8 @@ def validate_release(release_dir: Path, release_kind: str = "full") -> dict[str,
 
     if release_kind == "subset":
         validate_subset_contents(release_dir, manifest, registry_ids)
+    elif release_kind == "max-size-test":
+        validate_capacity_contents(release_dir, manifest)
 
     return {
         "release_kind": release_kind,
@@ -354,7 +546,7 @@ def validate_release(release_dir: Path, release_kind: str = "full") -> dict[str,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset-release", required=True, type=Path)
-    parser.add_argument("--release-kind", choices=("full", "subset"), default="full")
+    parser.add_argument("--release-kind", choices=RELEASE_KINDS, default="full")
     args = parser.parse_args()
     try:
         summary = validate_release(args.dataset_release, args.release_kind)

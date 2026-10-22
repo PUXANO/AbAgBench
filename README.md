@@ -4,8 +4,9 @@ AbAgBench is a reproducible pipeline for building nonredundant SAbDab2 datasets 
 benchmark antibody–protein antigen complex structure prediction. The repository contains
 code and synthetic test fixtures only; it does not distribute SAbDab2 or generated
 datasets. It also exports validated subsets of completed canonical releases for
-smoke tests and selected-complex experiments, and displays the settings recorded
-for full datasets and subsets with `dataset-info`.
+smoke tests and selected-complex experiments. `dataset-info` displays recorded
+settings and observed contents. `max-size-test` builds separate
+machine-capacity test inputs directly from a SAbDab2 snapshot.
 
 ## Citation
 
@@ -255,6 +256,21 @@ rule combines `smallest_repr` with the configured quality tie-break and is check
 against the stage-6 rule when both are recorded. Missing information is shown as
 `not recorded`; current configuration defaults are never substituted.
 
+A separate **Dataset contents** section shows the final number of complexes,
+the observed minimum and maximum whole-complex AA counts, and the IDs at those
+extremes. Counts sum the full exported sequences across all chains, including
+unresolved residues. These observed bounds describe the selected output; the
+generation bounds describe the filters applied before clustering and
+representative selection.
+
+Completed runs and subset exports save these statistics in the manifest's
+`dataset_summary`. For older completed releases, `dataset-info` computes them
+from the final registry, feature table and FASTA when those files are present,
+checking target coverage and agreement between feature and sequence lengths.
+It leaves the manifest unchanged. A manifest inspected without those files or
+recorded statistics shows `not recorded` for the observed range. JSON includes
+`dataset_summary_source` (`manifest` or `dataset_files`).
+
 Use `--json` for detailed provenance, including manifest hashes, timestamps,
 recorded completion status and dataset size, software versions and the full
 source-file inventory.
@@ -269,8 +285,8 @@ Generation length bounds are exclusive; the subset's `max_residues` is inclusive
 | Option | Behaviour |
 | --- | --- |
 | `DATASET` | Required dataset directory, experiment directory, or manifest path. |
-| `--json` | Emit parameters and detailed provenance as JSON; default: a compact parameter summary. |
-| `--verify` | Run the release validator against artifact hashes and target coverage; default: metadata inspection only. |
+| `--json` | Emit parameters, observed contents and detailed provenance as JSON; default: a compact parameter and contents summary. |
+| `--verify` | Run the release validator against artifact hashes and target coverage, and check recorded size statistics against the exported files; default: inspect saved metadata, calculating size statistics for older releases when files are available. |
 
 ```bash
 abagbench dataset-info /path/to/my-experiment --json
@@ -282,7 +298,7 @@ package. It uses only the standard library and performs no GPU, Foldseek or SAbD
 preflight checks. If Python is provided by an environment, activate that environment
 or invoke its Python 3.12+ executable directly. Incomplete and failed runs can be
 inspected. `--verify` requires a completed canonical full release or a completed
-subset and checks the release files with the existing validator, including
+subset, or a completed max-size-test export, and checks the release files, including
 subset/source consistency. Successful verification adds a confirmation line;
 errors return a
 nonzero exit code. Both modes are read-only.
@@ -368,6 +384,82 @@ the manifest hash automatically. Use `DATASET_DIR` only to select another datase
 location. A five-complex export declares five targets for input preparation,
 prediction and evaluation.
 
+## Machine-capacity test inputs
+
+`max-size-test` selects antibody–protein antigen inputs directly from a SAbDab2
+snapshot for inference memory and runtime measurements. It uses an input-eligibility
+profile: distinct single-character heavy, optional light and single protein antigen
+chains; full sequences containing the 20 standard amino acids after the existing
+modified-residue mapping; and readable mmCIF records with resolvable chains.
+Unresolved sequence positions contribute to the AA count. Chain-sharing constructs
+must fit this input representation. Selection uses these eligibility checks and
+the requested sizes/IDs independently of benchmark date, structure-quality,
+CDR-completeness and structural-similarity criteria.
+
+Run in the installed AbAgBench environment. This command uses CPU sequence/structure
+parsing and requires the supplied snapshot's summary CSV and mmCIF files.
+
+```bash
+abagbench max-size-test \
+  --sabdab-dir /path/to/sabdab-snapshot \
+  --output /path/to/capacity-test \
+  --min-residues 2000 --max-residues 3500 --bin-width 100 --per-bin 1
+
+# Inspect availability and exclusions without writing files.
+abagbench max-size-test \
+  --sabdab-dir /path/to/sabdab-snapshot \
+  --output /path/to/capacity-test \
+  --bins 2000 2100 2300 2700 3500 --dry-run
+
+# Select PDB entries; use exact chain combinations when a PDB is ambiguous.
+abagbench max-size-test \
+  --sabdab-dir /path/to/sabdab-snapshot \
+  --output /path/to/capacity-test \
+  --pdb-ids 7z12 9mx1 --max-residues 3500
+```
+
+| Option | Behaviour |
+| --- | --- |
+| `--sabdab-dir DIR` | Required SAbDab2 snapshot directory. |
+| `--summary-file FILE` | Snapshot-relative summary CSV; default `sabdab_summary_all.csv`. |
+| `--structures-dir DIR` | Snapshot-relative structure directory; default `sabdab_all_structures`. Supports extracted and gzip-compressed SAbDab CIF layouts. |
+| `--output DIR` | Required experiment folder. Managed `inputs/` and `outputs/` must be absent or empty; existing `run.env` is preserved. |
+| `--min-residues N`, `--max-residues N` | Inclusive whole-complex full-sequence AA bounds. Optional for explicit ID selections; required with `--bin-width`. |
+| `--bin-width N` | Positive bin width between the requested bounds. The last bin can be shorter. |
+| `--bins N ...` | Alternative explicit increasing edges; supplies the overall bounds. |
+| `--per-bin N` | Exactly N complexes per bin; default 1 when bins are supplied. |
+| `--pdb-ids ID ...` | PDB entries, each resolving to exactly one eligible complex after size filtering. Case is normalized. |
+| `--complex-ids ID ...` | Alternative exact complex IDs, including case-sensitive chain suffixes. |
+| `--dry-run` | Print the selected IDs/sizes and input-exclusion audit as JSON without creating output files. |
+
+Choose bins or explicit IDs. IDs can restrict the candidates for binned selection.
+Each bin is lower-inclusive and upper-exclusive, except that the final upper
+edge is inclusive. Selection prefers the largest eligible complexes in each bin,
+breaking size ties by complex ID. Underfilled bins, unavailable requested IDs and
+ambiguous PDB IDs are errors; ambiguity messages list the eligible complex IDs.
+Invalid inputs have recorded exclusion reasons, included in the command's JSON
+result and retained with successful exports.
+
+The export creates `inputs/benchmark/{registry.tsv,benchmark.fasta,dataset_features.csv,structures/}`
+and an empty `outputs/`. Its feature table records complex ID, PDB ID, nanobody
+status and whole-complex AA count. `inputs/provenance/candidates.json` retains
+eligible chain sequences, source CIF paths/hashes and input exclusions;
+`inputs/provenance/source_summary.csv` retains the source annotations.
+`inputs/run_manifest.json` records `release_kind=max-size-test`,
+`purpose=machine_capacity_test`, `execution.canonical=false`, selection criteria,
+selected targets, observed bounds and artifact hashes. Validation replays selection
+from the retained catalog and checks the exported metadata and sequences. The
+original snapshot is not required to validate an exported release.
+
+```bash
+abagbench dataset-info /path/to/capacity-test --verify
+```
+
+Place `run.env` in the capacity-test experiment to prepare MSAs and run inference
+with universal_runner. Its configured protocol and resource requests determine the
+conditions measured; the release identifies capacity-test inputs separately from
+canonical benchmark datasets.
+
 ## Experiment layout
 
 `--output` is the experiment folder, not the dataset directory itself. It is
@@ -406,7 +498,7 @@ per-stage timing and memory. Dataset artifact paths are relative to `inputs/`;
 working-artifact and plot records refer to `../outputs/abagbench/`.
 
 Create the experiment's `run.env` from universal_runner's template. The runner
-uses the adjacent `inputs/` by default and derives the full/subset type and
+uses the adjacent `inputs/` by default and derives the release type and
 manifest hash from `inputs/run_manifest.json`; `DATASET_DIR` overrides the dataset
 location. The runner creates its preparation and inference directories under `outputs/`.
 AbAgBench does not create `run.env` or choose model settings, inference resources

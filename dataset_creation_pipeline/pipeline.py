@@ -26,6 +26,7 @@ from .provenance import (
     write_manifest,
 )
 from .input_data import discover_structure_files
+from .dataset_summary import summarize_dataset
 
 try:
     import resource
@@ -498,6 +499,7 @@ def run_pipeline(
                         meta_s6 = result
 
                 if end == 7:
+                    manifest["dataset_summary"] = summarize_dataset(run_dir)
                     plots_dir = PLOTS_ROOT
                     plot_outputs = [plots_dir]
                     plots_fp = fingerprint({
