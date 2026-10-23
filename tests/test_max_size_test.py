@@ -95,10 +95,53 @@ def test_ambiguous_pdb_requires_explicit_chain_combination(tmp_path):
     assert result["selected"] == [{"complex_id": "1abc_BY", "residue_length": 4}]
 
 
-def test_empty_bins_and_invalid_explicit_requests_fail_without_export(tmp_path):
+def test_empty_and_underfilled_bins_export_available_targets_with_coverage(tmp_path):
     source = make_snapshot(tmp_path / "snapshot")
-    for criteria, message in ((selection_criteria(bin_edges=[4, 5, 6, 7, 8]), "coverage"),
-                              (selection_criteria(pdb_ids=["9abc"]), "absent"),
+    output = tmp_path / "partial"
+    result = export_max_size_test(source, output, criteria=selection_criteria(bin_edges=[4, 5, 7, 8], per_bin=2))
+    assert [r["complex_id"] for r in result["selected"]] == ["1abc_XY", "2def_XY", "3abc_XY"]
+    assert result["bin_coverage"] == [
+        {"lower": 4, "upper": 5, "upper_inclusive": False, "available": 1, "requested": 2,
+         "selected_targets": ["1abc_XY"], "selected": 1, "shortfall": 1},
+        {"lower": 5, "upper": 7, "upper_inclusive": False, "available": 2, "requested": 2,
+         "selected_targets": ["3abc_XY", "2def_XY"], "selected": 2, "shortfall": 0},
+        {"lower": 7, "upper": 8, "upper_inclusive": True, "available": 0, "requested": 2,
+         "selected_targets": [], "selected": 0, "shortfall": 2},
+    ]
+    assert len(result["warnings"]) == 2
+    report = dataset_info(output, verify=True)
+    assert report["bin_coverage"] == result["bin_coverage"]
+    assert "0 available; 0/2 selected; shortfall 2" in format_info(report)
+    manifest_path = output / "inputs/run_manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["bin_coverage"][-1]["available"] = 1
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(ValueError, match="bin coverage differs"):
+        validate_release(output / "inputs", "max-size-test")
+
+
+def test_all_empty_bins_are_reported_by_dry_run_but_create_no_empty_release(tmp_path):
+    source = make_snapshot(tmp_path / "snapshot")
+    criteria = selection_criteria(bin_edges=[10, 11, 12])
+    result = export_max_size_test(source, tmp_path / "none", criteria=criteria, dry_run=True)
+    assert result["selected"] == []
+    assert [b["shortfall"] for b in result["bin_coverage"]] == [1, 1]
+    with pytest.raises(ValueError, match="No eligible complexes across"):
+        export_max_size_test(source, tmp_path / "none", criteria=criteria)
+    assert not (tmp_path / "none").exists()
+
+
+def test_legacy_exact_count_selection_remains_strict(tmp_path):
+    source = make_snapshot(tmp_path / "snapshot")
+    criteria = selection_criteria(bin_edges=[4, 5, 6, 7, 8])
+    criteria["rule"] = "largest_per_bin_then_complex_id"
+    with pytest.raises(ValueError, match="Insufficient capacity-bin coverage"):
+        export_max_size_test(source, tmp_path / "legacy", criteria=criteria)
+
+
+def test_invalid_explicit_requests_fail_without_export(tmp_path):
+    source = make_snapshot(tmp_path / "snapshot")
+    for criteria, message in ((selection_criteria(pdb_ids=["9abc"]), "absent"),
                               (selection_criteria(complex_ids=["1abc_XY"], minimum=5), "outside bounds")):
         with pytest.raises(ValueError, match=message):
             export_max_size_test(source, tmp_path / "bad", criteria=criteria)

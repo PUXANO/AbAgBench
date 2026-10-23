@@ -324,7 +324,7 @@ def validate_capacity_selection(criteria: dict) -> None:
     """Validate capacity options independently of candidate availability."""
     if not isinstance(criteria, dict) or set(criteria) != {
         "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids", "rule"
-    } or criteria["rule"] != "largest_per_bin_then_complex_id":
+    } or criteria["rule"] not in ("largest_per_bin_then_complex_id", "largest_up_to_per_bin_then_complex_id"):
         raise ValueError("Invalid max-size-test selection criteria")
     lower, upper, edges, per_bin, pdbs, ids = (criteria[k] for k in (
         "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids"))
@@ -353,8 +353,8 @@ def validate_capacity_selection(criteria: dict) -> None:
         raise ValueError("Specify capacity bins, PDB IDs or complex IDs")
 
 
-def select_capacity_targets(candidates: dict, criteria: dict) -> list[str]:
-    """Replay explicit or binned capacity selection without benchmark filtering."""
+def capacity_selection_report(candidates: dict, criteria: dict) -> tuple[list[str], list[dict]]:
+    """Replay selection and account for every bin, including empty bins."""
     validate_capacity_selection(criteria)
     lower, upper, edges, per_bin, pdbs, ids = (criteria[k] for k in (
         "min_residues", "max_residues", "bin_edges", "per_bin", "pdb_ids", "complex_ids"))
@@ -373,8 +373,10 @@ def select_capacity_targets(candidates: dict, criteria: dict) -> list[str]:
                 raise ValueError(f"PDB {pdb}: expected one eligible complex, found {matching}; use --complex-ids to disambiguate")
             chosen.update(matching)
         eligible = chosen
-    if not eligible:
+    partial = criteria["rule"] == "largest_up_to_per_bin_then_complex_id"
+    if not eligible and not (partial and edges is not None):
         raise ValueError("Capacity selection contains no complexes")
+    coverage = []
     if edges is not None:
         selected, shortages = [], []
         for index, (lo, hi) in enumerate(zip(edges, edges[1:])):
@@ -384,14 +386,25 @@ def select_capacity_targets(candidates: dict, criteria: dict) -> list[str]:
                              key=lambda t: (-lengths[t], t))
             if len(members) < per_bin:
                 shortages.append(f"[{lo}, {hi}{']' if final else ')'}: {len(members)} available, {per_bin} required")
-            selected.extend(members[:per_bin])
-        if shortages:
+            chosen = members[:per_bin]
+            coverage.append({"lower": lo, "upper": hi, "upper_inclusive": final,
+                             "available": len(members), "requested": per_bin,
+                             "selected_targets": chosen, "selected": len(chosen),
+                             "shortfall": max(0, per_bin - len(chosen))})
+            selected.extend(chosen)
+        # Existing manifests retain their original exact-count selection policy.
+        if shortages and not partial:
             raise ValueError("Insufficient capacity-bin coverage: " + "; ".join(shortages))
         eligible = set(selected)
     selected = sorted(eligible)
     if len({t.lower() for t in selected}) != len(selected):
         raise ValueError("Selected capacity IDs collide on case-insensitive filesystems")
-    return selected
+    return selected, coverage
+
+
+def select_capacity_targets(candidates: dict, criteria: dict) -> list[str]:
+    """Return the targets declared by the recorded capacity selection policy."""
+    return capacity_selection_report(candidates, criteria)[0]
 
 
 def capacity_records(manifest: dict) -> list[dict]:
@@ -470,7 +483,12 @@ def validate_capacity_contents(release_dir: Path, manifest: dict) -> None:
     # Reuse chain/ID/type validation without applying benchmark cohort filters.
     select_targets(registry, features, {"ids": sorted(registry), "complex_type": "all", "max_residues": None,
                                        "count": None, "seed": None})
-    selected = select_capacity_targets(candidates, manifest.get("selection"))
+    selected, coverage = capacity_selection_report(candidates, manifest.get("selection"))
+    if not selected:
+        raise ValueError("Capacity release must contain at least one selected complex")
+    if manifest["selection"]["rule"] == "largest_up_to_per_bin_then_complex_id" or "bin_coverage" in manifest:
+        if json.dumps(manifest.get("bin_coverage"), sort_keys=True) != json.dumps(coverage, sort_keys=True):
+            raise ValueError("Capacity bin coverage differs from recorded selection")
     if manifest.get("selected_targets") != selected:
         raise ValueError("Capacity targets differ from recorded selection")
     for name, delimiter, expected_fields, expected_rows in (

@@ -13,7 +13,7 @@ from . import __version__
 from .dataset_summary import summarize_dataset
 from .release import (
     CAPACITY_ARTIFACTS, CAPACITY_FEATURE_FIELDS, CAPACITY_REGISTRY_FIELDS,
-    _sha256, select_capacity_targets, validate_capacity_selection, validate_release,
+    _sha256, capacity_selection_report, validate_capacity_selection, validate_release,
 )
 from .subset import artifact_record
 
@@ -36,7 +36,7 @@ def selection_criteria(*, minimum=None, maximum=None, bin_width=None, bin_edges=
     return {"min_residues": minimum, "max_residues": maximum, "bin_edges": bin_edges,
             "per_bin": (1 if per_bin is None else per_bin) if bin_edges is not None else None,
             "pdb_ids": [t.lower() for t in pdb_ids] if pdb_ids is not None else None,
-            "complex_ids": complex_ids, "rule": "largest_per_bin_then_complex_id"}
+            "complex_ids": complex_ids, "rule": "largest_up_to_per_bin_then_complex_id"}
 
 
 def _source_cif(structures: Path, pdb: str) -> Path:
@@ -124,15 +124,22 @@ def export_max_size_test(source: Path, output: Path, *, criteria: dict,
     catalog, sources = _catalog(source, summary, structures, criteria)
     candidates = {entry["registry"]["complex_id"]: entry for entry in catalog["candidates"]}
     try:
-        selected = select_capacity_targets(candidates, criteria)
+        selected, coverage = capacity_selection_report(candidates, criteria)
     except ValueError as error:
         raise ValueError(f"{error}. Input exclusions ({len(catalog['excluded'])}): "
                          + json.dumps(catalog["excluded"], ensure_ascii=False)) from error
+    warnings = [f"Bin [{b['lower']}, {b['upper']}{']' if b['upper_inclusive'] else ')'}: "
+                f"selected {b['selected']} of {b['requested']} requested ({b['available']} available)"
+                for b in coverage if b["shortfall"]]
     plan = {"release_kind": "max-size-test", "purpose": "machine_capacity_test", "selection": criteria,
+            "bin_coverage": coverage, "warnings": warnings,
             "selected": [{"complex_id": t, "residue_length": int(candidates[t]["registry"]["residue_length"])}
                          for t in selected], "eligible_candidates": len(candidates), "excluded": catalog["excluded"]}
     if dry_run:
         return {"dry_run": True, **plan}
+    if not selected:
+        raise ValueError("No eligible complexes across the requested capacity bins; no dataset exported. "
+                         + "; ".join(warnings))
     from .utils import write_chain_subset_cif
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
@@ -167,6 +174,7 @@ def export_max_size_test(source: Path, output: Path, *, criteria: dict,
                     "status": "completed", "created_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                     "execution": {"canonical": False, "command": "python -m dataset_creation_pipeline max-size-test"},
                     "software": {"abagbench": __version__}, "selection": criteria, "selected_targets": selected,
+                    "bin_coverage": coverage,
                     "dataset_summary": summarize_dataset(dataset),
                     "max_size_test_export": {"status": "completed", "outputs": [
                         artifact_record(dataset, p) for p in CAPACITY_ARTIFACTS]}}

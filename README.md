@@ -427,7 +427,7 @@ abagbench max-size-test \
 | `--min-residues N`, `--max-residues N` | Inclusive whole-complex full-sequence AA bounds. Optional for explicit ID selections; required with `--bin-width`. |
 | `--bin-width N` | Positive bin width between the requested bounds. The last bin can be shorter. |
 | `--bins N ...` | Alternative explicit increasing edges; supplies the overall bounds. |
-| `--per-bin N` | Exactly N complexes per bin; default 1 when bins are supplied. |
+| `--per-bin N` | Select up to N complexes per bin; default 1 when bins are supplied. |
 | `--pdb-ids ID ...` | PDB entries, each resolving to exactly one eligible complex after size filtering. Case is normalized. |
 | `--complex-ids ID ...` | Alternative exact complex IDs, including case-sensitive chain suffixes. |
 | `--dry-run` | Print the selected IDs/sizes and input-exclusion audit as JSON without creating output files. |
@@ -435,8 +435,14 @@ abagbench max-size-test \
 Choose bins or explicit IDs. IDs can restrict the candidates for binned selection.
 Each bin is lower-inclusive and upper-exclusive, except that the final upper
 edge is inclusive. Selection prefers the largest eligible complexes in each bin,
-breaking size ties by complex ID. Underfilled bins, unavailable requested IDs and
-ambiguous PDB IDs are errors; ambiguity messages list the eligible complex IDs.
+breaking size ties by complex ID. Empty and underfilled bins contribute their
+available targets. The command reports a warning for each shortage and records
+every bin's available, requested and selected counts, selected IDs and shortfall
+in `bin_coverage` in both the JSON result and release manifest. `dataset-info`
+shows the recorded bin coverage; `--verify` checks it against the candidate catalog.
+`--dry-run` also reports all-empty selections; an export requires at least one
+eligible complex. Unavailable explicitly requested IDs and ambiguous PDB IDs are
+errors; ambiguity messages list the eligible complex IDs.
 Invalid inputs have recorded exclusion reasons, included in the command's JSON
 result and retained with successful exports.
 

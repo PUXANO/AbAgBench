@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     bins = capacity.add_mutually_exclusive_group()
     bins.add_argument("--bin-width", type=int, help="Positive bin width; requires --min-residues and --max-residues.")
     bins.add_argument("--bins", nargs="+", type=int, help="Explicit increasing bin edges; final upper edge is inclusive.")
-    capacity.add_argument("--per-bin", type=int, help="Exactly this many complexes per bin (default: 1 with bins).")
+    capacity.add_argument("--per-bin", type=int, help="Select up to this many complexes per bin; report shortages (default: 1 with bins).")
     identifiers = capacity.add_mutually_exclusive_group()
     identifiers.add_argument("--pdb-ids", nargs="+", help="PDB IDs, each resolving to exactly one eligible complex.")
     identifiers.add_argument("--complex-ids", nargs="+", help="Exact complex IDs, including chain suffixes.")

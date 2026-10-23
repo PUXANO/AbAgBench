@@ -184,6 +184,7 @@ def dataset_info(dataset: Path, *, verify: bool = False) -> dict[str, Any]:
         "subset_export_software": manifest.get("software") if kind == "subset" else None,
         "selected_targets": manifest.get("selected_targets") if kind in {"subset", "max-size-test"} else None,
         "capacity_selection": _object(manifest, "selection") if kind == "max-size-test" else None,
+        "bin_coverage": manifest.get("bin_coverage") if kind == "max-size-test" else None,
     }
 
 
@@ -210,6 +211,18 @@ def format_info(report: dict) -> str:
         lines.append("Capacity selection (whole-complex AA bounds inclusive)")
         for key, value in report["capacity_selection"].items():
             row(key, "not set" if value is None else value)
+        coverage = report["bin_coverage"]
+        if coverage is not None:
+            if not isinstance(coverage, list) or any(not isinstance(b, dict) or not {
+                "lower", "upper", "upper_inclusive", "available", "requested", "selected", "shortfall"
+            } <= set(b) for b in coverage):
+                raise ValueError("Invalid capacity bin coverage")
+            if coverage:
+                lines.append("Recorded bin coverage")
+                for b in coverage:
+                    row(f"[{b['lower']}, {b['upper']}{']' if b['upper_inclusive'] else ')'}",
+                        f"{b['available']} available; {b['selected']}/{b['requested']} selected; "
+                        f"shortfall {b['shortfall']}")
         lines.extend(_contents_lines(report))
         if report["verification"]["status"] == "passed":
             row("artifact verification", "passed")
